@@ -1,0 +1,14 @@
+<div class="top">
+  <div class="shop">
+    {% if logo %}<img src="{{ logo }}" alt="">{% endif %}
+    <div class="name">{{ doc.business.name }}</div>
+    {% for line in doc.business.address %}<div>{{ line }}</div>{% endfor %}
+    <div>{{ doc.business.phone or "" }}{% if doc.business.phone and doc.business.email %}  |  {% endif %}{{ doc.business.email or "" }}</div>
+    {% if doc.business.website %}<div>{{ doc.business.website }}</div>{% endif %}
+  </div>
+  <div class="title">
+    <h1>{{ doc.title }}</h1>
+    <div class="tag num">{{ doc.number }}{% if doc.version and doc.version > 1 %} v{{ doc.version }}{% endif %}</div>
+    <div class="muted" style="margin-top:4pt">{{ doc.date | date }}</div>
+  </div>
+</div>

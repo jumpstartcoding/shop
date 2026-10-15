@@ -149,6 +149,31 @@ export type WorkOrder = Totals & {
   items: LineItem[];
   invoice_ids: number[];
   estimate_ids: number[];
+  authorization: AuthorizationState | null;
+  email?: EmailResult | null;
+};
+
+export type AuthorizationState = {
+  status: "none" | "awaiting" | "approved" | "declined" | "changed_since_signed";
+  signed_at: string | null;
+  signer_name: string | null;
+  method: string | null;
+  authorization_id: number | null;
+};
+
+export type EmailResult = { status: "sent" | "failed" | "skipped"; to: string | null; message: string };
+
+export type SendResult = { link: string; email: EmailResult | null };
+
+export type DocumentTrail = {
+  versions: { id: number; version: number; kind: "issued" | "signed"; created_at: string; content_sha256: string }[];
+  authorizations: {
+    id: number; decision: string; method: string; status: string; signer_name: string; signed_at: string;
+    ip_address: string | null; note: string | null; version_id: number; signed_version_id: number | null;
+    recorded_by_shop: boolean;
+  }[];
+  links: { id: number; created_at: string; expires_at: string; active: boolean; first_viewed_at: string | null; view_count: number }[];
+  emails: { id: number; created_at: string; status: string; to: string | null; subject: string; error: string | null }[];
 };
 
 export type WorkOrderCard = {
@@ -184,9 +209,11 @@ export type Estimate = Totals & {
   decision_method: string | null;
   decision_note: string | null;
   converted_at: string | null;
+  is_supplement: boolean;
   created_at: string;
   party: Party;
   items: LineItem[];
+  authorization: AuthorizationState | null;
 };
 
 export type Payment = {
@@ -260,6 +287,7 @@ export type Appointment = {
   reported_mileage: number | null;
   customer_name: string | null;
   vehicle_name: string | null;
+  email?: EmailResult | null;
 };
 
 export type Business = {
@@ -295,6 +323,43 @@ export type Business = {
   authorization_statement: string;
   allow_typed_signature: boolean;
   invoice_footer: string | null;
+  terms_text: string | null;
+  notify_by_email: boolean;
+  logo_key: string | null;
+  testimonials: Testimonial[];
+  reviews_url: string | null;
+};
+
+export type Testimonial = { name: string; text: string };
+
+export type PublicBusiness = {
+  name: string;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  service_area: string | null;
+  hours: Record<string, { open: string; close: string } | null>;
+  about_text: string | null;
+  certifications: string | null;
+  offers_towing: boolean;
+  towing_info: string | null;
+  financing_info: string | null;
+  social_links: Record<string, string>;
+  testimonials: Testimonial[];
+  reviews_url: string | null;
+  timezone: string;
+  has_logo: boolean;
+};
+
+export type Inquiry = {
+  id: number; kind: "contact" | "question"; name: string | null; email: string | null; phone: string | null;
+  message: string; customer_id: number | null; entity_type: string | null; entity_id: number | null;
+  created_at: string; handled_at: string | null;
 };
 
 export type Service = {

@@ -125,6 +125,8 @@ class StatusChange(BaseModel):
     status: WorkOrderStatus
     # Completing without every QC item checked requires an explicit override.
     override_checklist: bool = False
+    # With status ready_for_pickup: email the customer that the vehicle is ready.
+    notify_customer: bool = False
 
 
 class WorkOrderOut(TotalsOut):
@@ -147,6 +149,8 @@ class WorkOrderOut(TotalsOut):
     items: list[LineItemOut] = []
     invoice_ids: list[int] = []
     estimate_ids: list[int] = []
+    authorization: dict | None = None
+    email: dict | None = None
 
 
 class WorkOrderCard(BaseModel):
@@ -177,6 +181,8 @@ class EstimateCreate(BaseModel):
     expires_on: date | None = None
     # When created from a work order with no items given, its current lines are copied.
     items: list[LineItemIn] | None = Field(default=None, max_length=200)
+    # Approval request for additional work on an open work order; lines are added on approval.
+    is_supplement: bool = False
 
 
 class EstimateUpdate(BaseModel):
@@ -214,10 +220,12 @@ class EstimateOut(TotalsOut):
     decision_method: str | None
     decision_note: str | None
     converted_at: datetime | None
+    is_supplement: bool
     created_at: datetime
     updated_at: datetime
     party: PartyOut | None = None
     items: list[LineItemOut] = []
+    authorization: dict | None = None
 
 
 # ---------- invoices & payments ----------

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ doc.title }} {{ doc.number }}</title>
+<link rel="stylesheet" href="templates/base.css">
+</head>
+<body>
+<div class="docid">{{ doc.business.name }}  |  {{ doc.title }} {{ doc.number }}{% if doc.version %} version {{ doc.version }}{% endif %}</div>
+{% include "_header.html" %}
+
+<div class="parties">
+  <div>
+    <div class="label">Customer</div>
+    <strong>{{ doc.customer.name }}</strong>
+    {% for line in doc.customer.address %}<div>{{ line }}</div>{% endfor %}
+    {% if doc.customer.phone %}<div>{{ doc.customer.phone }}</div>{% endif %}
+    {% if doc.customer.email %}<div>{{ doc.customer.email }}</div>{% endif %}
+  </div>
+  <div>
+    <div class="label">Vehicle</div>
+    <strong>{{ doc.vehicle.description }}</strong>
+    {% if doc.vehicle.vin %}<div>VIN <span class="num">{{ doc.vehicle.vin }}</span></div>{% endif %}
+    {% if doc.vehicle.plate %}<div>Plate {{ doc.vehicle.plate }}</div>{% endif %}
+    {% if doc.vehicle.mileage is not none %}<div>Mileage {{ "{:,}".format(doc.vehicle.mileage) }}</div>{% endif %}
+  </div>
+  <div>
+    {% if doc.doc_type == "invoice" %}
+      <div class="label">Invoice date</div><div>{{ doc.date | date }}</div>
+      {% if doc.due_date %}<div class="label" style="margin-top:4pt">Due</div><div>{{ doc.due_date | date }}</div>{% endif %}
+    {% elif doc.expires_on %}
+      <div class="label">Valid until</div><div>{{ doc.expires_on | date }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if doc.concern %}<div class="concern"><span class="label">Customer concern</span><br>{{ doc.concern }}</div>{% endif %}
+
+<table class="lines">
+  <thead><tr><th>Description</th><th class="r">Qty / hrs</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
+  <tbody>
+  {% for li in doc["items"] %}
+    <tr>
+      <td><span class="kind">{{ li.kind_label }}</span>{{ li.description }}
+        {% if li.part_number or li.warranty %}<div class="small muted">{% if li.part_number %}Part # {{ li.part_number }}{% endif %}{% if li.part_number and li.warranty %}, {% endif %}{% if li.warranty %}Warranty {{ li.warranty }}{% endif %}</div>{% endif %}
+      </td>
+      <td class="r num">{{ li.quantity | qty }}</td>
+      <td class="r num">{{ li.unit_price_cents | money }}</td>
+      <td class="r num">{% if li.kind == "discount" %}-{% endif %}{{ li.line_total_cents | money }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="muted">No charges listed.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<table class="totals">
+  <tr><td>Labor</td><td class="r num">{{ doc.totals.labor_cents | money }}</td></tr>
+  <tr><td>Parts</td><td class="r num">{{ doc.totals.parts_cents | money }}</td></tr>
+  {% if doc.totals.fees_cents %}<tr><td>Fees</td><td class="r num">{{ doc.totals.fees_cents | money }}</td></tr>{% endif %}
+  {% if doc.totals.discount_cents %}<tr><td>Discounts</td><td class="r num">-{{ doc.totals.discount_cents | money }}</td></tr>{% endif %}
+  <tr><td>Tax ({{ doc.totals.tax_rate }}% on {{ doc.totals.taxable_cents | money }})</td><td class="r num">{{ doc.totals.tax_cents | money }}</td></tr>
+  <tr class="grand"><td>{% if doc.doc_type == "invoice" %}Total{% else %}Estimated total{% endif %}</td><td class="r num">{{ doc.totals.total_cents | money }}</td></tr>
+  {% if doc.doc_type == "invoice" %}
+    {% for p in doc.payments %}
+      <tr class="small"><td>Paid {{ p.date | date }}, {{ p.method | method }}{% if p.reference %} #{{ p.reference }}{% endif %}</td><td class="r num">-{{ p.amount_cents | money }}</td></tr>
+    {% endfor %}
+    {% if doc.status == "void" %}
+      <tr><td colspan="2" class="declined">This invoice has been voided.</td></tr>
+    {% elif doc.balance_cents > 0 %}
+      <tr class="due"><td>Balance due</td><td class="r num">{{ doc.balance_cents | money }}</td></tr>
+    {% else %}
+      <tr><td colspan="2" style="text-align:right;padding-top:8pt"><span class="stamp">Paid in full</span></td></tr>
+    {% endif %}
+  {% endif %}
+</table>
+
+{% if doc.notes %}<div class="notes"><div class="label">Notes</div><div style="white-space:pre-wrap">{{ doc.notes }}</div></div>{% endif %}
+
+{% if doc.doc_type in ("estimate", "work_order") %}
+  {% if doc.terms %}<div class="terms">{{ doc.terms }}</div>{% endif %}
+  <div class="sign">
+    {% if signature and signature.decision == "declined" %}
+      <div class="declined">Declined by {{ signature.signer_name }} on {{ signature.signed_at | datetime }}.</div>
+      {% if signature.note %}<div>“{{ signature.note }}”</div>{% endif %}
+    {% else %}
+      <div class="statement">{{ doc.authorization_statement }}</div>
+      {% if signature %}
+        <div class="row">
+          <div style="flex:2">
+            {% if signature.image %}<img src="{{ signature.image }}" alt="Signature">{% elif signature.typed_name %}<div class="typed">{{ signature.typed_name }}</div>{% else %}<div>Authorized by {{ signature.method | replace("_", " ") }}</div>{% endif %}
+            <div style="border-top:1pt solid #1f2a30;padding-top:2pt">{{ signature.signer_name }}</div>
+          </div>
+          <div style="flex:1"><div class="label">Signed</div>{{ signature.signed_at | datetime }}</div>
+        </div>
+        <div class="meta">
+          Authorization {{ signature.authorization_id }}
+          for {{ doc.number }} version {{ doc.version }}.
+          {% if signature.method in ("drawn", "typed") %}Signed electronically through a secure link.{% else %}Recorded by the shop from the customer's {{ signature.method | replace("_", " ") }} approval.{% endif %}
+          Document fingerprint (SHA-256): {{ signature.content_sha256 }}
+        </div>
+      {% else %}
+        <div class="row">
+          <div class="line" style="flex:2"></div>
+          <div class="line"></div>
+        </div>
+        <div class="row small muted"><div style="flex:2">Customer signature</div><div style="flex:1">Date</div></div>
+      {% endif %}
+    {% endif %}
+  </div>
+{% endif %}
+
+{% if doc.footer %}<div class="footer-note">{{ doc.footer }}</div>{% endif %}
+</body>
+</html>

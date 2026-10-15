@@ -10,8 +10,22 @@ from app.models.documents import (
     WorkOrder,
     WorkOrderItem,
 )
+from app.models.sharing import (
+    AccessToken,
+    Authorization,
+    DocumentVersion,
+    EmailLog,
+    EmailTemplate,
+    Inquiry,
+)
 
 __all__ = [
+    "AccessToken",
+    "Authorization",
+    "DocumentVersion",
+    "EmailLog",
+    "EmailTemplate",
+    "Inquiry",
     "Appointment",
     "AuditLog",
     "Base",

@@ -3,6 +3,7 @@ import { type FormEvent, useCallback, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DocumentList } from "../components/DocumentList";
 import { LineItems } from "../components/LineItems";
+import { AuthorizationBanner, DocumentTrail, SendButton } from "../components/Sending";
 import { CustomerVehiclePicker } from "../components/Picker";
 import { Button, Dl, ErrorNote, Field, InternalNote, Loading, Modal, PageHeader, Sheet, StatusBadge } from "../components/ui";
 import { api } from "../lib/api";
@@ -35,12 +36,18 @@ export function NewEstimate() {
   const [customerId, setCustomerId] = useState<number | null>(Number(params.get("customer")) || null);
   const [vehicleId, setVehicleId] = useState<number | null>(Number(params.get("vehicle")) || null);
   const [concern, setConcern] = useState("");
+  const workOrderId = Number(params.get("work_order")) || null;
+  const supplement = params.get("supplement") === "1" && workOrderId !== null;
   const onPick = useCallback((c: number | null, v: number | null) => {
     setCustomerId(c);
     setVehicleId(v);
   }, []);
   const create = useMutation({
-    mutationFn: () => api.post<Estimate>("/estimates", { customer_id: customerId, vehicle_id: vehicleId, concern, items: [] }),
+    mutationFn: () =>
+      api.post<Estimate>("/estimates", {
+        customer_id: customerId, vehicle_id: vehicleId, concern, items: [],
+        work_order_id: workOrderId, is_supplement: supplement,
+      }),
     onSuccess: (e) => navigate(`/admin/estimates/${e.id}`, { replace: true }),
   });
   const submit = (e: FormEvent) => {
@@ -49,19 +56,24 @@ export function NewEstimate() {
   };
   return (
     <form onSubmit={submit} className="space-y-4">
-      <PageHeader title="New estimate" sub="For a job that's already in the shop, open its work order and create the estimate from there." />
+      <PageHeader
+        title={supplement ? "Approval for additional work" : "New estimate"}
+        sub={supplement
+          ? "Add only the extra work you found. When the customer approves, it's added to the work order."
+          : "For a job that's already in the shop, open its work order and create the estimate from there."}
+      />
       <ErrorNote error={create.error} />
       <Sheet><div className="p-4"><CustomerVehiclePicker customerId={customerId} vehicleId={vehicleId} onChange={onPick} /></div></Sheet>
       {vehicleId && (
         <Sheet>
           <div className="p-4">
-            <Field label="What the customer asked about">
+            <Field label={supplement ? "What you found" : "What the customer asked about"}>
               {(p) => <textarea {...p} className="field min-h-20" value={concern} onChange={(e) => setConcern(e.target.value)} />}
             </Field>
           </div>
         </Sheet>
       )}
-      <Button type="submit" variant="primary" disabled={!vehicleId} busy={create.isPending}>Start estimate</Button>
+      <Button type="submit" variant="primary" disabled={!vehicleId} busy={create.isPending}>{supplement ? "Start approval request" : "Start estimate"}</Button>
     </form>
   );
 }
@@ -95,7 +107,7 @@ export function EstimatePage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title={<>Estimate {est.number}{est.version > 1 && <span className="ml-2 text-steel-2">v{est.version}</span>}</>}
+        title={<>{est.is_supplement ? "Additional work" : "Estimate"} {est.number}{est.version > 1 && <span className="ml-2 text-steel-2">v{est.version}</span>}</>}
         sub={
           <>
             <Link className="font-medium text-steel underline-offset-4 hover:underline" to={`/admin/customers/${est.customer_id}`}>{est.party.customer_name}</Link>
@@ -111,40 +123,51 @@ export function EstimatePage() {
             ["Created", date(est.created_at)],
             ["Valid until", date(est.expires_on)],
             ["Given to customer", dateTime(est.sent_at)],
-            ["Approved", est.approved_at && `${dateTime(est.approved_at)} by ${est.decision_method?.replace("_", " ")}`],
-            ["Declined", est.declined_at && `${dateTime(est.declined_at)} by ${est.decision_method?.replace("_", " ")}`],
+            ["Approved", est.approved_at && `${dateTime(est.approved_at)}, ${methodLabel(est.decision_method)}`],
+            ["Declined", est.declined_at && `${dateTime(est.declined_at)}, ${methodLabel(est.decision_method)}`],
             ["Note", est.decision_note],
             ["Work order", est.work_order_id && <Link className="underline" to={`/admin/work-orders/${est.work_order_id}`}>Open work order</Link>],
           ]}
         />
+        <div className="px-4 pb-3"><AuthorizationBanner state={est.authorization} /></div>
         <div className="flex flex-wrap gap-2 border-t border-line p-4">
-          {est.status === "draft" && (
-            <Button onClick={() => action.mutate("mark-sent")} busy={action.isPending} disabled={!est.items.length}>
-              Mark as given to customer
-            </Button>
+          {["draft", "sent", "viewed"].includes(est.status) && (
+            <SendButton
+              path={`/estimates/${id}/send`}
+              label={est.status === "draft" ? "Send to customer for approval" : "Send the link again"}
+              noun={est.is_supplement ? "approval request" : "estimate"}
+              email={est.party.customer_email}
+              phone={est.party.customer_phone}
+              disabled={!est.items.length}
+            />
           )}
           {["draft", "sent", "viewed"].includes(est.status) && (
-            <Button variant="primary" onClick={() => setModal("decision")} disabled={!est.items.length}>
-              Record customer's answer
+            <Button onClick={() => setModal("decision")} disabled={!est.items.length}>
+              Record answer from phone or in person
+            </Button>
+          )}
+          {est.status === "draft" && (
+            <Button variant="quiet" onClick={() => action.mutate("mark-sent")} busy={action.isPending} disabled={!est.items.length}>
+              Mark as printed or handed over
             </Button>
           )}
           {est.status === "approved" && !est.converted_at && (
             <Button variant="primary" onClick={() => convert.mutate()} busy={convert.isPending}>
-              {est.work_order_id ? "Apply to work order" : "Turn into work order"}
+              {est.is_supplement ? "Add to work order" : est.work_order_id ? "Apply to work order" : "Turn into work order"}
             </Button>
           )}
           {est.status !== "draft" && !est.converted_at && (
-            <Button onClick={() => confirm("Create a new version? Any approval on this version will no longer apply.") && action.mutate("revise")}
+            <Button onClick={() => confirm("Create a new version? Any approval on this version will no longer apply, and the customer's current link stops working.") && action.mutate("revise")}
               busy={action.isPending}>
               Create new version
             </Button>
           )}
+          <a href={`/api/estimates/${id}/pdf`} target="_blank" rel="noopener" className="inline-flex min-h-12 items-center rounded-md px-4 font-medium hover:bg-black/5">
+            Preview PDF
+          </a>
           <Button variant="quiet" onClick={() => setModal("notes")}>Notes</Button>
         </div>
         <div className="px-4 pb-2"><ErrorNote error={action.error ?? convert.error} /></div>
-        <p className="border-t border-line px-4 py-3 text-[15px] text-steel-2">
-          Sending estimates by email with an approve button and signature arrives in the next phase. For now, show or print it, then record the answer here.
-        </p>
       </Sheet>
 
       {est.concern && <p className="text-lg">“{est.concern}”</p>}
@@ -165,10 +188,16 @@ export function EstimatePage() {
         </Sheet>
       )}
 
+      <DocumentTrail entityType="estimate" entityId={id} />
+
       {modal === "decision" && <DecisionModal id={id} onClose={() => setModal(null)} />}
       {modal === "notes" && <EstimateNotes est={est} onClose={() => setModal(null)} />}
     </div>
   );
+}
+
+function methodLabel(m: string | null): string {
+  return m === "link" ? "through the customer's link" : m === "in_person" ? "in person" : m ? `by ${m}` : "";
 }
 
 function DecisionModal({ id, onClose }: { id: number; onClose: () => void }) {

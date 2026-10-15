@@ -2,6 +2,9 @@
 so constraints, locking, and numbering behave exactly as in production."""
 
 import os
+import shutil
+import tempfile
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +16,11 @@ TEST_DB = os.environ.get(
 os.environ["DATABASE_URL"] = TEST_DB
 os.environ["ENVIRONMENT"] = "test"
 os.environ["ORIGIN_SECRET"] = ""
+FILES_DIR = tempfile.mkdtemp(prefix="shop-test-files-")
+os.environ["FILES_DIR"] = FILES_DIR
+os.environ["STORAGE_BACKEND"] = "local"
+os.environ["EMAIL_BACKEND"] = "file"
+os.environ["PUBLIC_BASE_URL"] = "https://shop.example"
 
 from app.config import get_settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
@@ -22,6 +30,12 @@ PASSWORD = "correct-horse-battery"
 EMAIL = "owner@example.com"
 
 TABLES = [
+    "authorizations",
+    "access_tokens",
+    "document_versions",
+    "inquiries",
+    "email_templates",
+    "email_log",
     "payments",
     "invoice_items",
     "invoices",
@@ -79,6 +93,26 @@ def clean(database):
         )
     engine.dispose()
     yield
+
+
+@pytest.fixture
+def outbox():
+    """Emails 'sent' during the test, as parsed messages."""
+    import email
+    from email import policy
+
+    box = Path(FILES_DIR) / "outbox"
+    shutil.rmtree(box, ignore_errors=True)
+
+    def read():
+        if not box.exists():
+            return []
+        return [
+            email.message_from_bytes(p.read_bytes(), policy=policy.default)
+            for p in sorted(box.glob("*.eml"), key=lambda p: p.stat().st_mtime)
+        ]
+
+    return read
 
 
 @pytest.fixture

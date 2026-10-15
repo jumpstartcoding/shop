@@ -38,6 +38,11 @@ def _prefix(v):
 Prefix = Annotated[str | None, BeforeValidator(_prefix)]
 
 
+class Testimonial(BaseModel):
+    name: Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=80)]
+    text: Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=600)]
+
+
 class BusinessUpdate(BaseModel):
     name: ShortText(160) = None
     phone: ShortText(40) = None
@@ -73,6 +78,10 @@ class BusinessUpdate(BaseModel):
     authorization_statement: ShortText(2000) = None
     allow_typed_signature: bool | None = None
     invoice_footer: ShortText(2000) = None
+    terms_text: ShortText(5000) = None
+    notify_by_email: bool | None = None
+    testimonials: list[Testimonial] | None = Field(default=None, max_length=12)
+    reviews_url: ShortText(300) = None
 
     @field_validator("hours")
     @classmethod
@@ -123,6 +132,11 @@ class BusinessOut(ORMModel):
     authorization_statement: str
     allow_typed_signature: bool
     invoice_footer: str | None
+    terms_text: str | None
+    notify_by_email: bool
+    logo_key: str | None
+    testimonials: list
+    reviews_url: str | None
 
 
 class PublicBusinessOut(ORMModel):
@@ -145,6 +159,10 @@ class PublicBusinessOut(ORMModel):
     towing_info: str | None
     financing_info: str | None
     social_links: dict
+    testimonials: list
+    reviews_url: str | None
+    timezone: str
+    has_logo: bool = False
 
 
 class ServiceIn(BaseModel):

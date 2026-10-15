@@ -16,8 +16,10 @@ from app.routers import (
     auth,
     customers,
     dashboard,
+    documents,
     estimates,
     invoices,
+    public,
     settings,
     work_orders,
 )
@@ -55,7 +57,7 @@ def create_app() -> FastAPI:
         start = time.perf_counter()
         response = await call_next(request)
         response.headers["X-Request-Id"] = request_id
-        response.headers["Cache-Control"] = "no-store"
+        response.headers.setdefault("Cache-Control", "no-store")
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         log.info(
@@ -92,6 +94,8 @@ def create_app() -> FastAPI:
         settings.router,
         settings.public,
         dashboard.router,
+        documents.router,
+        public.router,
     ):
         app.include_router(r, prefix=API_PREFIX)
 

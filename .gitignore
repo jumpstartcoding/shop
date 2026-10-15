@@ -25,3 +25,6 @@ samconfig.toml
 .idea/
 .vscode/
 *.tsbuildinfo
+
+# Local file storage and email outbox (development)
+.files/

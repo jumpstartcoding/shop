@@ -37,7 +37,7 @@ Why each piece:
 | Files | S3, uploads via presigned URLs, images compressed in the browser before upload | Lambda never proxies large uploads; photos stay small. |
 | Email | Amazon SES | Same AWS account, pay per message. |
 | Payments | Stripe Checkout (hosted) + webhooks | Card data never touches this system. Apple Pay / Google Pay come with Checkout. |
-| PDFs | WeasyPrint (HTML/CSS → PDF) on the server | Real print layout, consistent branding, no browser screenshots. |
+| PDFs | WeasyPrint (HTML/CSS → PDF) on the server, Barlow fonts bundled (SIL OFL) | Real print layout, consistent branding, no browser screenshots. The Lambda image installs Pango/HarfBuzz. |
 | Scheduled jobs | EventBridge Scheduler → same Lambda with a task payload | Overdue invoices, maintenance reminders. No queues, no workers. |
 | Secrets | SSM Parameter Store (standard tier) | Free, unlike Secrets Manager per-secret pricing. |
 | IaC | AWS SAM template | One file describes the Lambda, bucket, CloudFront, scheduler. |
@@ -82,8 +82,9 @@ All money is stored as **integer cents**. Quantities and hours are `NUMERIC(10,2
 |---|---|---|
 | `access_tokens` | 2 | Tokenized customer links. Stores SHA-256 of a 256-bit random token, scope (`estimate:view`, `invoice:pay`, …), target id, expiry, revoked flag. |
 | `document_versions` | 2 | Immutable snapshot of a document as sent/signed: JSON content, rendered PDF S3 key, SHA-256 of the PDF. |
-| `authorizations` | 2 | Signature/approval records (covers spec's `estimate_approvals` and §56): signer name/contact, decision, statement text shown, signature image key or typed name, IP, user agent, timestamp, `document_version_id`. |
-| `email_templates`, `email_log` | 2 | Editable templates; delivery attempts and failures. |
+| `authorizations` | 2 | Signature/approval records (covers spec's `estimate_approvals` and §56): signer name/contact, decision, method (drawn, typed, link decline, or recorded by the shop from phone/in person), statement text shown, signature image key or typed name, IP, user agent, timestamp, `document_version_id`, `signed_version_id`, status (valid/superseded). |
+| `inquiries` | 2 | Website contact messages and customers' questions about a document. |
+| `email_templates`, `email_log` | 2 | Shop edits to built-in templates (absent row = built-in wording); every send attempt with status sent/failed/skipped. |
 | `stripe_events` | 3 | Processed webhook event IDs, for idempotency. |
 | `inspections`, `inspection_items` | 4 | Digital inspection (Good / Monitor / Needs Attention / Urgent) with recommended repair and estimated cost. |
 | `photos` | 4 | S3 key + polymorphic owner (`work_order`, `inspection_item`, `vehicle`, …). |
@@ -232,9 +233,9 @@ Each phase ships working, tested functionality. Nothing is stubbed to look finis
 
 | Phase | Scope |
 |---|---|
-| **1a** Backend core | Config, DB, migrations, auth, audit log, pricing engine, numbering; customers, vehicles, appointments, work orders, estimates, invoices, manual payments, settings, services catalog, dashboard summary, global search; tests on real Postgres. |
-| **1b** Admin UI | Mobile-first React admin: dashboard, search, customers, vehicles, calendar, work order editor + status board, estimates, invoices, record payment, settings. |
-| **2** Customer links, PDFs, email, signatures | Access tokens, customer estimate/invoice pages, approve/decline/question, additional-repair approvals, signature capture, document versions and locking, WeasyPrint PDFs, SES email + editable templates, public website + booking form. |
+| **1a** Backend core (done) | Config, DB, migrations, auth, audit log, pricing engine, numbering; customers, vehicles, appointments, work orders, estimates, invoices, manual payments, settings, services catalog, dashboard summary, global search; tests on real Postgres. |
+| **1b** Admin UI (done) | Mobile-first React admin: dashboard, search, customers, vehicles, calendar, work order editor + status board, estimates, invoices, record payment, settings. |
+| **2** Customer links, PDFs, email, signatures (done) | Access tokens, customer estimate/invoice pages, approve/decline/question, additional-repair approvals, signature capture, document versions and locking, WeasyPrint PDFs, SES email + editable templates, public website + booking form. |
 | **3** Online payments | Stripe Checkout, webhook handling (heavily tested), receipts, refunds. |
 | **4** Inspections and photos | Digital inspection, presigned uploads with client-side compression, inspection report PDF, service history, QC checklist enforcement. |
 | **5** Shop admin | Parts, vendors, expenses, maintenance reminders + nightly job, reports with date filters, CSV export, VIN decode via the free NHTSA vPIC API (optional, app works without it). |

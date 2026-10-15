@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Empty, ErrorNote, Loading, RowLink, Sheet, StatusBadge } from "../components/ui";
+import { Button, Empty, ErrorNote, Loading, RowLink, Sheet, StatusBadge } from "../components/ui";
 import { api } from "../lib/api";
-import { dayLabel, money, time } from "../lib/format";
+import { dateTime, dayLabel, money, time } from "../lib/format";
 import type { WorkOrderCard } from "../lib/types";
 
 type ApptRow = {
@@ -36,6 +36,7 @@ type DashboardData = {
   recently_paid_invoices: InvRow[];
   revenue: { today_cents: number; week_cents: number; month_cents: number; year_cents: number };
   outstanding_cents: number;
+  messages: { id: number; kind: string; name: string | null; message: string; entity_type: string | null; entity_id: number | null; created_at: string }[];
 };
 
 const NOTE_LINK: Record<string, string> = {
@@ -43,7 +44,10 @@ const NOTE_LINK: Record<string, string> = {
   ready_for_pickup: "/admin/board",
   estimates_awaiting: "/admin/estimates?status=sent",
   invoices_overdue: "/admin/invoices?unpaid=1",
+  messages: "/admin#messages",
 };
+
+const ENTITY_PATH: Record<string, string> = { estimate: "estimates", invoice: "invoices", work_order: "work-orders" };
 
 export function Dashboard() {
   const { data, error, isLoading } = useQuery({
@@ -81,6 +85,8 @@ export function Dashboard() {
       )}
 
       <Money data={data} />
+
+      {data.messages.length > 0 && <Messages messages={data.messages} />}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Sheet title="In the shop" action={<Link className="min-h-12 content-center underline underline-offset-4" to="/admin/board">Board</Link>}>
@@ -236,5 +242,35 @@ function ApptLink({ a, showTime, showDay }: { a: ApptRow; showTime?: boolean; sh
       </div>
       <StatusBadge status={a.status} />
     </RowLink>
+  );
+}
+
+function Messages({ messages }: { messages: DashboardData["messages"] }) {
+  const done = useMutation({ mutationFn: (id: number) => api.post(`/inquiries/${id}/handled`) });
+  return (
+    <Sheet title={<span id="messages">Messages from customers</span>}>
+      <ul>
+        {messages.map((m) => (
+          <li key={m.id} className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3 last:border-0">
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">
+                {m.name ?? "Someone"}{" "}
+                <span className="font-normal text-steel-2">
+                  {m.kind === "question" ? "asked about " : "wrote through the website"}
+                  {m.kind === "question" && m.entity_type && m.entity_id && (
+                    <Link className="underline" to={`/admin/${ENTITY_PATH[m.entity_type]}/${m.entity_id}`}>
+                      their {m.entity_type.replace("_", " ")}
+                    </Link>
+                  )}
+                  , {dateTime(m.created_at)}
+                </span>
+              </p>
+              <p className="whitespace-pre-wrap">{m.message}</p>
+            </div>
+            <Button variant="quiet" busy={done.isPending} onClick={() => done.mutate(m.id)}>Mark answered</Button>
+          </li>
+        ))}
+      </ul>
+    </Sheet>
   );
 }

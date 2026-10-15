@@ -112,6 +112,13 @@ class Business(IdMixin, TimestampMixin, Base):
     )
     allow_typed_signature: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     invoice_footer: Mapped[str | None] = mapped_column(Text)
+    # Printed on signed work order authorizations (e.g. storage fees, diagnostic charges).
+    terms_text: Mapped[str | None] = mapped_column(Text)
+    # Email the shop when a booking request, question, or customer approval comes in.
+    notify_by_email: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Real customer reviews the shop chooses to show: [{"name": ..., "text": ...}].
+    testimonials: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    reviews_url: Mapped[str | None] = mapped_column(String(300))
 
 
 class Service(IdMixin, TimestampMixin, ArchiveMixin, Base):

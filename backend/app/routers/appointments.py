@@ -1,4 +1,5 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
@@ -15,6 +16,8 @@ from app.schemas.customers import (
     AppointmentStatus,
     AppointmentUpdate,
 )
+from app.services import notify
+from app.services.business import get_business
 from app.services.workflow import get_or_404
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
@@ -93,7 +96,7 @@ def list_appointments(
 def create_appointment(
     data: AppointmentCreate, db: Session = Depends(get_db), user: User = Depends(require_user)
 ):
-    appt = Appointment(**data.model_dump(), source="admin")
+    appt = Appointment(**data.model_dump(exclude={"notify_customer"}), source="admin")
     _check_refs(db, appt)
     db.add(appt)
     db.flush()
@@ -105,7 +108,10 @@ def create_appointment(
         entity_id=appt.id,
         details={"starts_at": appt.starts_at, "status": appt.status},
     )
-    return _out(appt)
+    out = _out(appt)
+    if data.notify_customer:
+        out.email = _send_confirmation(db, appt)
+    return out
 
 
 @router.get("/{appointment_id}", response_model=AppointmentOut)
@@ -124,7 +130,7 @@ def update_appointment(
 ):
     """Reschedule (drag on the calendar), change status, or edit details."""
     appt = get_or_404(db, Appointment, appointment_id, "Appointment")
-    changes = data.model_dump(exclude_unset=True)
+    changes = data.model_dump(exclude_unset=True, exclude={"notify_customer"})
     if changes.get("status") is None:
         changes.pop("status", None)
     before = {k: getattr(appt, k) for k in changes}
@@ -147,4 +153,30 @@ def update_appointment(
             details=delta,
         )
     db.flush()
-    return _out(appt)
+    out = _out(appt)
+    if data.notify_customer:
+        out.email = _send_confirmation(db, appt)
+    return out
+
+
+def _send_confirmation(db: Session, appt: Appointment) -> dict:
+    if appt.starts_at is None:
+        raise AppError(
+            "Set a date and time before sending a confirmation.",
+            status_code=422,
+            code="validation_error",
+        )
+    tz = ZoneInfo(get_business(db).timezone)
+    when = appt.starts_at.astimezone(tz).strftime("%A, %B %-d at %-I:%M %p")
+    c = appt.customer
+    to = (c.email if c else None) or appt.contact_email
+    first = c.first_name if c else (appt.contact_name or "").split(" ")[0]
+    vehicle = appt.vehicle.display_name if appt.vehicle else (appt.vehicle_description or "vehicle")
+    return notify.send_templated(
+        db,
+        "appointment_confirmed",
+        to,
+        {"customer_first_name": first, "vehicle": vehicle, "appointment_time": when},
+        entity_type="appointment",
+        entity_id=appt.id,
+    ).as_dict()

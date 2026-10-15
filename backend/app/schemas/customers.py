@@ -207,10 +207,13 @@ class AppointmentFields(BaseModel):
 class AppointmentCreate(AppointmentFields):
     customer_id: int
     status: AppointmentStatus = "confirmed"
+    notify_customer: bool = False
 
 
 class AppointmentUpdate(AppointmentFields):
     status: AppointmentStatus | None = None
+    # Email the customer a confirmation after this change (needs a time and an email on file).
+    notify_customer: bool = False
 
 
 class AppointmentOut(ORMModel):
@@ -236,3 +239,4 @@ class AppointmentOut(ORMModel):
     customer_name: str | None = None
     vehicle_name: str | None = None
     created_at: datetime
+    email: dict | None = None

@@ -72,12 +72,12 @@ def list_estimates(
 def create_estimate(
     data: EstimateCreate, db: Session = Depends(get_db), user: User = Depends(require_user)
 ):
-    return estimate_out(workflow.create_estimate(db, user, data))
+    return estimate_out(workflow.create_estimate(db, user, data), db)
 
 
 @router.get("/{est_id}", response_model=EstimateOut)
 def get_estimate(est_id: int, db: Session = Depends(get_db), _: User = Depends(require_user)):
-    return estimate_out(workflow.get_or_404(db, Estimate, est_id, "Estimate"))
+    return estimate_out(workflow.get_or_404(db, Estimate, est_id, "Estimate"), db)
 
 
 @router.patch("/{est_id}", response_model=EstimateOut)
@@ -108,7 +108,7 @@ def update_estimate(
             details=delta,
         )
     db.flush()
-    return estimate_out(est)
+    return estimate_out(est, db)
 
 
 @router.put("/{est_id}/items", response_model=EstimateOut)
@@ -130,7 +130,7 @@ def replace_items(
         entity_id=est.id,
         details={"line_count": len(items), "total_cents": est.total_cents},
     )
-    return estimate_out(est)
+    return estimate_out(est, db)
 
 
 @router.post("/{est_id}/items", response_model=EstimateOut, status_code=201)
@@ -149,7 +149,7 @@ def add_item(
         entity_id=est.id,
         details={"description": line.description, "total_cents": est.total_cents},
     )
-    return estimate_out(est)
+    return estimate_out(est, db)
 
 
 @router.delete("/{est_id}/items/{item_id}", response_model=EstimateOut)
@@ -168,7 +168,7 @@ def delete_item(
         entity_id=est.id,
         details={"item_id": item_id, "total_cents": est.total_cents},
     )
-    return estimate_out(est)
+    return estimate_out(est, db)
 
 
 @router.post("/{est_id}/mark-sent", response_model=EstimateOut)
@@ -177,7 +177,7 @@ def mark_sent(est_id: int, db: Session = Depends(get_db), user: User = Depends(r
     the app). Locks it against edits. Emailing from the app arrives in Phase 2."""
     est = workflow.get_or_404(db, Estimate, est_id, "Estimate", lock=True)
     workflow.mark_estimate_sent(db, user, est)
-    return estimate_out(est)
+    return estimate_out(est, db)
 
 
 @router.post("/{est_id}/decision", response_model=EstimateOut)
@@ -187,7 +187,7 @@ def record_decision(
     """Record an approval or decline the customer gave in person, by phone, email, or text."""
     est = workflow.get_or_404(db, Estimate, est_id, "Estimate", lock=True)
     workflow.record_estimate_decision(db, user, est, data)
-    return estimate_out(est)
+    return estimate_out(est, db)
 
 
 @router.post("/{est_id}/revise", response_model=EstimateOut)
@@ -196,7 +196,7 @@ def revise(est_id: int, db: Session = Depends(get_db), user: User = Depends(requ
     and any earlier approval no longer applies."""
     est = workflow.get_or_404(db, Estimate, est_id, "Estimate", lock=True)
     workflow.revise_estimate(db, user, est)
-    return estimate_out(est)
+    return estimate_out(est, db)
 
 
 @router.post("/{est_id}/convert", response_model=WorkOrderOut, status_code=201)

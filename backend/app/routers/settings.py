@@ -169,7 +169,10 @@ def archive_service(
 
 @public.get("/business", response_model=PublicBusinessOut)
 def public_business(db: Session = Depends(get_db)):
-    return get_business(db)
+    business = get_business(db)
+    out = PublicBusinessOut.model_validate(business)
+    out.has_logo = bool(business.logo_key)
+    return out
 
 
 @public.get("/services", response_model=list[ServiceOut])

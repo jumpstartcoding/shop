@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Receipt {{ doc.number }}</title>
+<link rel="stylesheet" href="templates/base.css">
+</head>
+<body>
+<div class="docid">{{ doc.business.name }}  |  Receipt {{ doc.number }}</div>
+{% include "_header.html" %}
+
+<div class="parties">
+  <div>
+    <div class="label">Received from</div>
+    <strong>{{ doc.customer.name }}</strong>
+    {% if doc.customer.phone %}<div>{{ doc.customer.phone }}</div>{% endif %}
+    {% if doc.customer.email %}<div>{{ doc.customer.email }}</div>{% endif %}
+  </div>
+  <div>
+    <div class="label">Vehicle</div>
+    <strong>{{ doc.vehicle.description }}</strong>
+    {% if doc.vehicle.vin %}<div>VIN <span class="num">{{ doc.vehicle.vin }}</span></div>{% endif %}
+  </div>
+</div>
+
+<table class="totals" style="width:100%;margin-top:16pt">
+  <tr><td>For invoice</td><td class="r num">{{ doc.invoice_number }}</td></tr>
+  <tr><td>Payment date</td><td class="r">{{ doc.payment.paid_at | date }}</td></tr>
+  <tr><td>Paid by</td><td class="r">{{ doc.payment.method | method }}{% if doc.payment.reference %} #{{ doc.payment.reference }}{% endif %}</td></tr>
+  <tr><td>Invoice total</td><td class="r num">{{ doc.invoice_total_cents | money }}</td></tr>
+  <tr class="grand"><td>Amount received</td><td class="r num">{{ doc.payment.amount_cents | money }}</td></tr>
+  <tr><td>Remaining balance</td><td class="r num">{{ doc.balance_cents | money }}</td></tr>
+</table>
+{% if doc.payment.status == "void" %}<p class="declined">This payment was voided and is no longer applied to the invoice.</p>{% endif %}
+
+<div class="footer-note">{{ doc.footer }}</div>
+</body>
+</html>

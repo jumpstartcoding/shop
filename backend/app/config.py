@@ -26,6 +26,24 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # Files (signed PDFs, signatures, logo, later photos).
+    # "local" writes under files_dir (development/tests); "s3" uses files_bucket.
+    storage_backend: str = "local"
+    files_dir: str = ".files"
+    files_bucket: str = ""
+    aws_region: str = "us-east-1"
+
+    # Email. "file" writes .eml files to <files_dir>/outbox for local development;
+    # "ses" sends through Amazon SES; "disabled" records the attempt and sends nothing.
+    email_backend: str = "file"
+    email_from: str = "Shop <no-reply@example.com>"
+
+    # Customer links
+    estimate_link_days: int = 45
+    invoice_link_days: int = 180
+    # Public form abuse limit: submissions per IP address per hour.
+    public_submissions_per_hour: int = 5
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

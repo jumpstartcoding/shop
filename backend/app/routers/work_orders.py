@@ -21,7 +21,7 @@ from app.schemas.documents import (
     WorkOrderStatus,
     WorkOrderUpdate,
 )
-from app.services import workflow
+from app.services import notify, workflow
 from app.services.business import get_business
 from app.services.serialize import invoice_out, work_order_card, work_order_out
 
@@ -161,7 +161,23 @@ def set_status(
     wo = workflow.get_or_404(db, WorkOrder, wo_id, "Work order", lock=True)
     workflow.change_work_order_status(db, user, wo, data.status, data.override_checklist)
     db.flush()
-    return work_order_out(db, wo)
+    out = work_order_out(db, wo)
+    if data.notify_customer and data.status == "ready_for_pickup":
+        out.email = notify.send_templated(
+            db,
+            "vehicle_ready",
+            wo.customer.email,
+            {
+                "customer_first_name": wo.customer.first_name,
+                "vehicle": wo.vehicle.display_name,
+                "document_number": wo.number,
+            },
+            entity_type="work_order",
+            entity_id=wo.id,
+        ).as_dict()
+        if out.email["status"] == "sent":
+            wo.qc_checklist = {**wo.qc_checklist, "customer_notified": True}
+    return out
 
 
 # ---- lines

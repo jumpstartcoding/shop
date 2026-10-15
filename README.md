@@ -12,7 +12,7 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 |---|---|---|
 | 1a | Backend core: auth, customers, vehicles, appointments, work orders, estimates, invoices, manual payments, settings, services catalog, dashboard, search, audit log | **Done** (54 tests passing) |
 | 1b | Mobile-first admin UI (React) | **Done** |
-| 2 | Customer links, PDFs, email, digital signatures, public website and booking | Planned |
+| 2 | Customer links, PDFs, email, digital signatures, public website and booking | **Done** (81 backend tests) |
 | 3 | Stripe online payments, receipts, refunds | Planned |
 | 4 | Inspections, photos, service history | Planned |
 | 5 | Parts, vendors, expenses, reminders, reports, CSV export, VIN decode | Planned |
@@ -41,7 +41,20 @@ A mobile-first admin app at `/admin`, built for a phone in one hand in the bay a
 - **Settings:** shop profile, hours, pricing and tax, document prefixes, authorization wording, website services, password.
 - Global search from every screen; 48px+ touch targets; keyboard focus visible; works without horizontal scrolling at 390px wide.
 
-What it does **not** do yet: send email, generate PDFs, take signatures, take card payments online, or show a website. Those endpoints don't exist rather than existing as stubs. "Mark sent" records that you handed or sent a document yourself.
+### What Phase 2 adds
+- **Public website** at `/`: home page with a live open/closed sign in the shop's time zone, services (editable in Settings), about, contact form, map and directions, and online booking. Reviews show only when the shop adds real ones. Booking and contact forms have a hidden spam trap and a per-connection hourly limit.
+- **Customer links** (`/d/...`): estimates, repair authorizations, and invoices open on the customer's phone with no account. Each link is a 256-bit random token stored only as a hash, works for one document, expires, and stops working when a newer version is sent.
+- **Signatures:** customers check the authorization statement, then draw a signature with a finger (or type their name, if the shop allows it), or decline with a reason, or ask a question. The shop can also record a phone or in-person approval; it's stored the same way and marked as recorded by the shop.
+- **Document integrity:** sending locks the document as a numbered version with a SHA-256 fingerprint of its content and of its PDF. The customer sees and signs that stored version, never the live record. A signed copy (original plus signature block, signer, time, document ID, version, fingerprint) is generated and stored. Changing an approved estimate creates a new version and the old approval no longer applies; a work order that changes after signing is flagged "changed since signed". Stored PDFs are re-checked against their fingerprint before being served.
+- **Additional work approvals:** "Ask approval for extra work" on a work order creates a separate approval request; when approved, its lines are added to the job.
+- **PDFs** for estimates, work orders, invoices, receipts, and signed copies, rendered on the server with WeasyPrint and the bundled Barlow fonts, with the shop's logo.
+- **Email** for estimates, authorizations, invoices, receipts (PDF attached), appointment confirmations, and "your car is ready". Every send is logged; a failed email never undoes the send, and the link is always shown so it can be texted instead. Templates are editable. The shop can be emailed when requests, questions, and approvals come in.
+- **Today screen** shows messages from customers; the calendar turns booking requests into customers with the form prefilled.
+
+What it does **not** do yet: take card payments online (Phase 3), inspections and photos (Phase 4).
+
+### Electronic signatures: what this is and isn't
+The signing flow is designed as a strong electronic authorization record: who signed, what exact version they saw, the statement they agreed to, when, from which IP address and device, and a fingerprint of the document. It is **not legal advice and makes no claim about enforceability in any particular state.** The shop is responsible for wording the authorization statement and terms (Settings) appropriately for its jurisdiction, and may want a local attorney to review them.
 
 ## Local development
 
@@ -58,6 +71,8 @@ uv run uvicorn app.main:app --reload
 ```
 
 Then open http://localhost:8000/api/docs for the interactive API documentation.
+
+PDFs need WeasyPrint's system libraries. On a Mac: `brew install pango`. On Debian/Ubuntu: `apt install libpango-1.0-0 libpangoft2-1.0-0`. With `EMAIL_BACKEND=file`, "sent" emails appear as `.eml` files in `backend/.files/outbox`.
 
 In a second terminal, start the admin app (Node 20+):
 

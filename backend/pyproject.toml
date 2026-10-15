@@ -14,6 +14,9 @@ dependencies = [
     "argon2-cffi>=23.1",
     "mangum>=0.19",
     "structlog>=24.4",
+    "weasyprint>=70.0",
+    "boto3>=1.43.114",
+    "jinja2>=3.1.6",
 ]
 
 [dependency-groups]

@@ -1,0 +1,63 @@
+@font-face { font-family: "Barlow"; font-weight: 400; src: url("../fonts/barlow-latin-400-normal.woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 600; src: url("../fonts/barlow-latin-600-normal.woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; src: url("../fonts/barlow-condensed-latin-600-normal.woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; src: url("../fonts/barlow-condensed-latin-700-normal.woff2"); }
+
+@page {
+  size: letter;
+  margin: 0.55in 0.6in 0.7in;
+  @bottom-left { content: string(docid); font: 8.5pt "Barlow", sans-serif; color: #43525a; }
+  @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8.5pt "Barlow", sans-serif; color: #43525a; }
+}
+
+* { box-sizing: border-box; }
+html { font: 10pt/1.4 "Barlow", "DejaVu Sans", sans-serif; color: #1f2a30; }
+body { margin: 0; }
+h1, h2, h3 { font-family: "Barlow Condensed", "Barlow", sans-serif; margin: 0; line-height: 1.1; }
+.docid { string-set: docid content(); height: 0; overflow: hidden; visibility: hidden; }
+.num { font-family: "Barlow Condensed", "Barlow", sans-serif; font-variant-numeric: tabular-nums; }
+.muted { color: #43525a; }
+.small { font-size: 8.5pt; }
+
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 24pt;
+       padding-bottom: 10pt; border-bottom: 2.5pt solid #1f2a30; }
+.shop img { max-height: 46pt; max-width: 170pt; margin-bottom: 4pt; display: block; }
+.shop .name { font: 700 17pt "Barlow Condensed", sans-serif; }
+.title { text-align: right; }
+.title h1 { font-size: 24pt; }
+.title .tag { display: inline-block; margin-top: 4pt; background: #f2c200; padding: 2pt 8pt;
+              font: 700 13pt "Barlow Condensed", sans-serif; }
+
+.parties { display: flex; gap: 18pt; margin: 12pt 0 4pt; }
+.parties > div { flex: 1; }
+.label { font-size: 8.5pt; color: #43525a; margin-bottom: 1pt; }
+.concern { margin: 10pt 0 0; padding: 6pt 9pt; background: #eef0ef; border-left: 3pt solid #1f2a30; }
+
+table.lines { width: 100%; border-collapse: collapse; margin-top: 12pt; }
+table.lines th { text-align: left; font-size: 8.5pt; color: #43525a; font-weight: 600;
+                 border-bottom: 1pt solid #1f2a30; padding: 3pt 4pt; }
+table.lines td { padding: 5pt 4pt; border-bottom: 0.5pt solid #cbd2cf; vertical-align: top; }
+table.lines .r { text-align: right; white-space: nowrap; }
+table.lines .kind { font-size: 8pt; font-weight: 600; color: #43525a; margin-right: 4pt; }
+table.lines tr { page-break-inside: avoid; }
+
+.totals { margin-left: auto; width: 46%; margin-top: 8pt; border-collapse: collapse; }
+.totals td { padding: 2pt 4pt; }
+.totals td.r { text-align: right; }
+.totals tr.grand td { border-top: 1.5pt solid #1f2a30; padding-top: 5pt; font: 700 15pt "Barlow Condensed", sans-serif; }
+.totals tr.due td { font: 700 15pt "Barlow Condensed", sans-serif; background: #f2c200; padding: 4pt 6pt; }
+
+.notes { margin-top: 12pt; }
+.terms { margin-top: 12pt; font-size: 8.5pt; color: #43525a; white-space: pre-wrap; }
+.footer-note { margin-top: 14pt; padding-top: 6pt; border-top: 0.5pt solid #cbd2cf; white-space: pre-wrap; }
+
+.sign { margin-top: 16pt; padding: 10pt 12pt; border: 1pt solid #1f2a30; page-break-inside: avoid; }
+.sign .statement { font-weight: 600; margin-bottom: 10pt; }
+.sign .row { display: flex; gap: 18pt; align-items: flex-end; }
+.sign .line { flex: 1; border-bottom: 1pt solid #1f2a30; height: 34pt; }
+.sign img { height: 52pt; display: block; }
+.sign .typed { font: 600 20pt "Barlow Condensed", sans-serif; }
+.sign .meta { margin-top: 8pt; font-size: 8pt; color: #43525a; word-break: break-all; }
+.declined { color: #b3302a; font-weight: 600; }
+.stamp { display: inline-block; border: 2pt solid #276b43; color: #276b43; padding: 2pt 10pt;
+         font: 700 14pt "Barlow Condensed", sans-serif; transform: rotate(-4deg); }

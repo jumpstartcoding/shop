@@ -168,6 +168,9 @@ class Estimate(IdMixin, TimestampMixin, TotalsMixin, Base):
     decision_method: Mapped[str | None] = mapped_column(String(20))
     decision_note: Mapped[str | None] = mapped_column(String(500))
     converted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # An approval request for extra work on a job already underway. When approved, its lines
+    # are added to the work order instead of replacing them.
+    is_supplement: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     customer: Mapped[Customer] = relationship()
     vehicle: Mapped[Vehicle] = relationship()

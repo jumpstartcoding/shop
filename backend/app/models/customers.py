@@ -145,6 +145,7 @@ class Appointment(IdMixin, TimestampMixin, Base):
     contact_email: Mapped[str | None] = mapped_column(String(254))
     vehicle_description: Mapped[str | None] = mapped_column(String(200))
     reported_mileage: Mapped[int | None] = mapped_column(Integer)
+    source_ip: Mapped[str | None] = mapped_column(String(64))
 
     customer: Mapped[Customer | None] = relationship()
     vehicle: Mapped[Vehicle | None] = relationship()

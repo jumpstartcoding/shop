@@ -13,6 +13,7 @@ from app.schemas.documents import (
     WorkOrderCard,
     WorkOrderOut,
 )
+from app.services import documents
 
 
 def party(doc) -> PartyOut:
@@ -40,6 +41,7 @@ def work_order_out(db: Session, wo: WorkOrder) -> WorkOrderOut:
     out.invoice_ids = list(
         db.scalars(select(Invoice.id).where(Invoice.work_order_id == wo.id).order_by(Invoice.id))
     )
+    out.authorization = documents.authorization_state(db, "work_order", wo)
     out.estimate_ids = list(
         db.scalars(select(Estimate.id).where(Estimate.work_order_id == wo.id).order_by(Estimate.id))
     )
@@ -60,10 +62,12 @@ def work_order_card(wo: WorkOrder) -> WorkOrderCard:
     )
 
 
-def estimate_out(est: Estimate) -> EstimateOut:
+def estimate_out(est: Estimate, db: Session | None = None) -> EstimateOut:
     out = EstimateOut.model_validate(est, from_attributes=True)
     out.party = party(est)
     out.items = _items(est)
+    if db is not None:
+        out.authorization = documents.authorization_state(db, "estimate", est)
     return out
 
 

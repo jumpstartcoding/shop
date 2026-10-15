@@ -12,6 +12,7 @@ from app.models import (
     AuditLog,
     Customer,
     Estimate,
+    Inquiry,
     Invoice,
     Payment,
     User,
@@ -137,7 +138,24 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(require_user)):
             "paid_at": i.paid_at,
         }
 
+    messages = list(
+        db.scalars(
+            select(Inquiry)
+            .where(Inquiry.handled_at.is_(None))
+            .order_by(Inquiry.created_at.desc())
+            .limit(20)
+        )
+    )
     notifications = []
+    if messages:
+        notifications.append(
+            {
+                "kind": "messages",
+                "count": len(messages),
+                "message": f"{len(messages)} message{'s' if len(messages) != 1 else ''} "
+                "from customers to answer.",
+            }
+        )
     if requests:
         notifications.append(
             {
@@ -204,6 +222,18 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(require_user)):
             "year_cents": _revenue_since(db, year_start),
         },
         "outstanding_cents": sum(i.balance_cents for i in unpaid),
+        "messages": [
+            {
+                "id": m.id,
+                "kind": m.kind,
+                "name": m.name,
+                "message": m.message[:200],
+                "entity_type": m.entity_type,
+                "entity_id": m.entity_id,
+                "created_at": m.created_at,
+            }
+            for m in messages
+        ],
     }
 
 

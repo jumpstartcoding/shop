@@ -3,7 +3,8 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { LineItems } from "../components/LineItems";
 import { CustomerVehiclePicker } from "../components/Picker";
-import { Button, ErrorNote, Field, InternalNote, Loading, Modal, PageHeader, Sheet, StatusBadge } from "../components/ui";
+import { AuthorizationBanner, DocumentTrail, SendButton } from "../components/Sending";
+import { Button, ErrorNote, Field, InternalNote, LinkButton, Loading, Modal, PageHeader, Sheet, StatusBadge } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { dateTime, phoneHref, sentence } from "../lib/format";
 import { WO_STATUSES, type Estimate, type Invoice, type WorkOrder, type WorkOrderStatus } from "../lib/types";
@@ -99,6 +100,9 @@ export function WorkOrderPage() {
       api.post<Estimate>("/estimates", { customer_id: wo!.customer_id, vehicle_id: wo!.vehicle_id, work_order_id: id }),
     onSuccess: (e) => navigate(`/admin/estimates/${e.id}`),
   });
+  const notifyReady = useMutation({
+    mutationFn: () => api.post<WorkOrder>(`/work-orders/${id}/status`, { status: "ready_for_pickup", notify_customer: true }),
+  });
   const makeInvoice = useMutation({
     mutationFn: () => api.post<Invoice>(`/work-orders/${id}/invoice`),
     onSuccess: (inv) => navigate(`/admin/invoices/${inv.id}`),
@@ -172,9 +176,25 @@ export function WorkOrderPage() {
               Create invoice
             </Button>
           )}
+          {!closed && (
+            <LinkButton to={`/admin/estimates/new?customer=${wo.customer_id}&vehicle=${wo.vehicle_id}&work_order=${wo.id}&supplement=1`}>
+              Ask approval for extra work
+            </LinkButton>
+          )}
           <Button onClick={() => setModal("checklist")}>Completion checklist</Button>
+          {wo.status === "ready_for_pickup" && wo.party.customer_email && (
+            <Button onClick={() => notifyReady.mutate()} busy={notifyReady.isPending}>
+              Email customer it's ready
+            </Button>
+          )}
+          <a href={`/api/work-orders/${id}/pdf`} target="_blank" rel="noopener" className="inline-flex min-h-12 items-center rounded-md px-4 font-medium hover:bg-black/5">
+            Print work order
+          </a>
         </div>
-        <div className="px-4 pb-4"><ErrorNote error={makeEstimate.error ?? makeInvoice.error} /></div>
+        {notifyReady.data?.email && (
+          <p role="status" className="px-4 pb-3 text-steel-2">{notifyReady.data.email.message}</p>
+        )}
+        <div className="px-4 pb-4"><ErrorNote error={makeEstimate.error ?? makeInvoice.error ?? notifyReady.error} /></div>
         {wo.estimate_ids.length > 0 && (
           <p className="border-t border-line px-4 py-3 text-steel-2">
             Estimates:{" "}
@@ -184,6 +204,28 @@ export function WorkOrderPage() {
           </p>
         )}
       </Sheet>
+
+      <Sheet title="Customer authorization">
+        <div className="space-y-3 p-4">
+          <p className="text-steel-2">
+            Have the customer sign off on the work as written, from their phone. If you change the work afterwards, you'll see it here and can ask again.
+          </p>
+          <AuthorizationBanner state={wo.authorization} />
+          {!closed && (
+            <SendButton
+              path={`/work-orders/${id}/send-authorization`}
+              label={wo.authorization?.status === "approved" ? "Send again for signature" : "Send for signature"}
+              noun="repair authorization"
+              email={wo.party.customer_email}
+              phone={wo.party.customer_phone}
+              variant={wo.authorization?.status === "changed_since_signed" ? "primary" : "secondary"}
+              disabled={wo.items.length === 0 && !wo.concern}
+            />
+          )}
+        </div>
+      </Sheet>
+
+      <DocumentTrail entityType="work_order" entityId={id} />
 
       {(wo.customer_notes || wo.internal_notes) && (
         <Sheet title="Notes">

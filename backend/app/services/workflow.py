@@ -38,6 +38,7 @@ from app.schemas.documents import (
     PaymentIn,
     WorkOrderCreate,
 )
+from app.services import documents
 from app.services.business import get_business, shop_today
 from app.services.lines import apply_totals, build_line, copy_line
 
@@ -217,6 +218,8 @@ def create_estimate(db: Session, user: User, data: EstimateCreate) -> Estimate:
         wo = get_or_404(db, WorkOrder, data.work_order_id, "Work order")
         if wo.customer_id != customer.id or wo.vehicle_id != vehicle.id:
             raise InvalidReference("That work order is for a different customer or vehicle.")
+    if data.is_supplement and wo is None:
+        raise InvalidReference("Additional work approvals must belong to a work order.")
 
     today = shop_today(business)
     est = Estimate(
@@ -230,10 +233,11 @@ def create_estimate(db: Session, user: User, data: EstimateCreate) -> Estimate:
         internal_notes=data.internal_notes,
         mileage=data.mileage or (wo.mileage_in if wo else None) or vehicle.mileage,
         expires_on=data.expires_on or today + timedelta(days=business.estimate_valid_days),
-        tax_rate=business.tax_rate,
+        tax_rate=wo.tax_rate if wo else business.tax_rate,
+        is_supplement=data.is_supplement,
     )
     db.add(est)
-    if data.items is None and wo is not None:
+    if data.items is None and wo is not None and not data.is_supplement:
         for i, src in enumerate(wo.items):
             est.items.append(copy_line(EstimateItem, src, i))
         apply_totals(est, est.items, est.tax_rate)
@@ -259,35 +263,34 @@ def ensure_estimate_editable(est: Estimate) -> None:
         )
 
 
-def mark_estimate_sent(db: Session, user: User, est: Estimate) -> None:
+def mark_estimate_sent(db: Session, user: User, est: Estimate, channel: str = "manual") -> None:
     if est.status != "draft":
         raise Conflict(f"Estimate {est.number} is already {est.status}.")
     if not est.items:
         raise Conflict("Add at least one line before sending the estimate.")
     est.status = "sent"
     est.sent_at = est.locked_at = _now()
+    documents.issue_version(db, user, est)
     audit.record(
         db,
         user=user,
         action="estimate.sent",
         entity_type="estimate",
         entity_id=est.id,
-        details={"version": est.version, "total_cents": est.total_cents, "channel": "manual"},
+        details={"version": est.version, "total_cents": est.total_cents, "channel": channel},
     )
 
 
-def record_estimate_decision(db: Session, user: User, est: Estimate, data: DecisionIn) -> None:
-    """Record approval or decline the customer gave in person or by phone/email/text."""
-    if est.status not in ("draft", "sent", "viewed"):
-        raise Conflict(f"Estimate {est.number} is already {est.status}.")
-    if not est.items:
-        raise Conflict("An estimate with no lines can't be approved.")
+def apply_estimate_decision(
+    db: Session, est: Estimate, decision: str, method: str, note: str | None
+) -> None:
+    """Status changes that follow an approval or decline, however it was given."""
     now = _now()
-    est.status = data.decision
+    est.status = decision
     est.locked_at = est.locked_at or now
-    est.decision_method = data.method
-    est.decision_note = data.note
-    if data.decision == "approved":
+    est.decision_method = method
+    est.decision_note = note
+    if decision == "approved":
         est.approved_at = now
         if est.work_order_id:
             wo = db.get(WorkOrder, est.work_order_id)
@@ -295,20 +298,32 @@ def record_estimate_decision(db: Session, user: User, est: Estimate, data: Decis
                 wo.status = "approved"
     else:
         est.declined_at = now
-    audit.record(
+
+
+def record_estimate_decision(db: Session, user: User, est: Estimate, data: DecisionIn) -> None:
+    """Record approval or decline the customer gave in person or by phone/email/text.
+
+    It's stored as an authorization against the exact version the customer was quoted, with
+    a signed-copy PDF noting that the shop recorded it, just like a link signature."""
+    if est.status not in ("draft", "sent", "viewed"):
+        raise Conflict(f"Estimate {est.number} is already {est.status}.")
+    if not est.items:
+        raise Conflict("An estimate with no lines can't be approved.")
+    version = documents.issue_version(db, user, est)
+    apply_estimate_decision(db, est, data.decision, data.method, data.note)
+    documents.record_authorization(
         db,
+        version=version,
+        decision=data.decision,
+        method=data.method,
+        signer_name=est.customer.full_name,
+        signer_email=est.customer.email,
+        signer_phone=est.customer.phone,
+        statement=get_business(db).authorization_statement if data.decision == "approved" else None,
+        note=data.note,
         user=user,
-        action=f"estimate.{data.decision}",
-        entity_type="estimate",
-        entity_id=est.id,
-        details={
-            "version": est.version,
-            "total_cents": est.total_cents,
-            "method": data.method,
-            "note": data.note,
-            "recorded_by": "mechanic",
-        },
     )
+    documents.revoke_links(db, "estimate", est.id)
 
 
 def revise_estimate(db: Session, user: User, est: Estimate) -> None:
@@ -321,6 +336,9 @@ def revise_estimate(db: Session, user: User, est: Estimate) -> None:
     est.status = "draft"
     est.sent_at = est.viewed_at = est.approved_at = est.declined_at = est.locked_at = None
     est.decision_method = est.decision_note = None
+    superseded = documents.supersede_authorizations(db, "estimate", est.id)
+    documents.revoke_links(db, "estimate", est.id)
+    previous["authorizations_superseded"] = superseded
     audit.record(
         db,
         user=user,
@@ -338,7 +356,22 @@ def convert_estimate(db: Session, user: User, est: Estimate) -> WorkOrder:
         raise Conflict("This estimate has already been added to a work order.")
     business = get_business(db)
 
-    if est.work_order_id:
+    if est.work_order_id and est.is_supplement:
+        wo = get_or_404(db, WorkOrder, est.work_order_id, "Work order")
+        ensure_work_order_editable(wo)
+        start = max((li.position for li in wo.items), default=-1) + 1
+        for i, src in enumerate(est.items):
+            wo.items.append(copy_line(WorkOrderItem, src, start + i))
+        apply_totals(wo, wo.items, wo.tax_rate)
+        audit.record(
+            db,
+            user=user,
+            action="work_order.lines_added",
+            entity_type="work_order",
+            entity_id=wo.id,
+            details={"by_estimate": est.number, "added_cents": est.total_cents},
+        )
+    elif est.work_order_id:
         wo = get_or_404(db, WorkOrder, est.work_order_id, "Work order")
         ensure_work_order_editable(wo)
         # The estimate was usually built from this work order's own lines. Replace them with

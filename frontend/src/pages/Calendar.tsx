@@ -242,7 +242,10 @@ function AppointmentModal({ id, onClose }: { id: number; onClose: () => void }) 
   const [day, setDay] = useState<string | null>(null);
   const [start, setStart] = useState<string | null>(null);
   const [hours, setHours] = useState("1");
-  const update = useMutation({ mutationFn: (body: Record<string, unknown>) => api.patch(`/appointments/${id}`, body) });
+  const [notifyCustomer, setNotifyCustomer] = useState(true);
+  const update = useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.patch<Appointment>(`/appointments/${id}`, body),
+  });
 
   if (isLoading) return <Modal title="Appointment" onClose={onClose}><Loading /></Modal>;
   if (error || !a) return <Modal title="Appointment" onClose={onClose}><ErrorNote error={error} /></Modal>;
@@ -255,10 +258,14 @@ function AppointmentModal({ id, onClose }: { id: number; onClose: () => void }) 
     e.preventDefault();
     const s = toIsoWithOffset(dayVal, startVal);
     const end = new Date(new Date(s).getTime() + Number(hours || 1) * 3600_000).toISOString();
-    update.mutate({ starts_at: s, ends_at: end, ...(a.status === "requested" ? { status: "confirmed" } : {}) });
+    update.mutate({
+      starts_at: s, ends_at: end, ...(a.status === "requested" ? { status: "confirmed" } : {}),
+      notify_customer: canEmail && notifyCustomer,
+    });
   };
 
   const done = ["completed", "cancelled", "no_show"].includes(a.status);
+  const canEmail = !!(a.contact_email || a.customer_id);
 
   return (
     <Modal title={a.customer_name ?? a.contact_name ?? "Appointment"} onClose={onClose}>
@@ -295,9 +302,16 @@ function AppointmentModal({ id, onClose }: { id: number; onClose: () => void }) 
               <Field label="Start">{(p) => <input {...p} type="time" step={900} className="field" value={startVal} onChange={(e) => setStart(e.target.value)} />}</Field>
               <Field label="Hours">{(p) => <input {...p} className="field" inputMode="decimal" value={hours} onChange={(e) => setHours(e.target.value)} />}</Field>
             </div>
+            {canEmail && (
+              <label className="flex min-h-12 items-center gap-3">
+                <input type="checkbox" className="h-6 w-6" checked={notifyCustomer} onChange={(e) => setNotifyCustomer(e.target.checked)} />
+                Email the customer a confirmation
+              </label>
+            )}
             <Button type="submit" variant="primary" className="w-full" busy={update.isPending}>
               {a.status === "requested" ? "Confirm this time" : "Save new time"}
             </Button>
+            {update.data?.email && <p role="status" className="text-steel-2">{update.data.email.message}</p>}
           </form>
         )}
 
@@ -330,6 +344,7 @@ function NewAppointmentModal({ onClose, defaultDay }: { onClose: () => void; def
   const [hours, setHours] = useState("1");
   const [service, setService] = useState("");
   const [concern, setConcern] = useState("");
+  const [notifyCustomer, setNotifyCustomer] = useState(false);
   const onPick = useCallback((c: number | null, v: number | null) => { setCustomerId(c); setVehicleId(v); }, []);
   const create = useMutation({
     mutationFn: () => {
@@ -341,6 +356,7 @@ function NewAppointmentModal({ onClose, defaultDay }: { onClose: () => void; def
         ends_at: new Date(new Date(s).getTime() + Number(hours || 1) * 3600_000).toISOString(),
         requested_service: service,
         concern,
+        notify_customer: notifyCustomer,
       });
     },
     onSuccess: onClose,
@@ -357,6 +373,10 @@ function NewAppointmentModal({ onClose, defaultDay }: { onClose: () => void; def
         </div>
         <Field label="Service">{(p) => <input {...p} className="field" value={service} onChange={(e) => setService(e.target.value)} placeholder="Oil change, brakes, diagnosis…" />}</Field>
         <Field label="Concern">{(p) => <textarea {...p} className="field min-h-20" value={concern} onChange={(e) => setConcern(e.target.value)} />}</Field>
+        <label className="flex min-h-12 items-center gap-3">
+          <input type="checkbox" className="h-6 w-6" checked={notifyCustomer} onChange={(e) => setNotifyCustomer(e.target.checked)} />
+          Email the customer a confirmation
+        </label>
         <Button type="submit" variant="primary" className="w-full" disabled={!customerId} busy={create.isPending}>Book appointment</Button>
       </form>
     </Modal>

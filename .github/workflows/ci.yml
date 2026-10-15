@@ -25,6 +25,8 @@ jobs:
       TEST_DATABASE_URL: postgresql+psycopg://postgres@localhost:5432/shop_test
     steps:
       - uses: actions/checkout@v4
+      - name: PDF libraries for WeasyPrint
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"

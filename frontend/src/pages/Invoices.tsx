@@ -3,11 +3,12 @@ import { type FormEvent, useCallback, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DocumentList } from "../components/DocumentList";
 import { LineItems } from "../components/LineItems";
+import { DocumentTrail, SendButton } from "../components/Sending";
 import { CustomerVehiclePicker } from "../components/Picker";
 import { Button, Dl, ErrorNote, Field, InternalNote, Loading, Modal, PageHeader, Sheet, StatusBadge } from "../components/ui";
 import { api } from "../lib/api";
 import { centsToInput, date, dateTime, localDateInput, money, sentence, toCents } from "../lib/format";
-import type { Invoice, Payment } from "../lib/types";
+import type { EmailResult, Invoice, Payment } from "../lib/types";
 
 const FILTERS: [string, string[]][] = [
   ["All", []],
@@ -130,17 +131,31 @@ export function InvoicePage() {
           ]}
         />
         <div className="flex flex-wrap gap-2 border-t border-line p-4">
+          {!isVoid && (
+            <SendButton
+              path={`/invoices/${id}/send`}
+              label={inv.sent_at ? "Send the invoice again" : "Send to customer"}
+              noun="invoice"
+              email={inv.party.customer_email}
+              phone={inv.party.customer_phone}
+              variant={inv.sent_at ? "secondary" : "primary"}
+              disabled={!inv.items.length}
+            />
+          )}
           {!isVoid && !inv.sent_at && (
-            <Button onClick={() => markSent.mutate()} busy={markSent.isPending} disabled={!inv.items.length}>
-              Mark as given to customer
+            <Button variant="quiet" onClick={() => markSent.mutate()} busy={markSent.isPending} disabled={!inv.items.length}>
+              Mark as handed over
             </Button>
           )}
+          <a href={`/api/invoices/${id}/pdf`} target="_blank" rel="noopener" className="inline-flex min-h-12 items-center rounded-md px-4 font-medium hover:bg-black/5">
+            Print or download PDF
+          </a>
           {!isVoid && <Button onClick={() => setModal("edit")}>Edit dates and notes</Button>}
           {!isVoid && !hasPayments && <Button variant="danger" onClick={() => setModal("void")}>Void invoice</Button>}
         </div>
         <div className="px-4 pb-2"><ErrorNote error={markSent.error} /></div>
         <p className="border-t border-line px-4 py-3 text-[15px] text-steel-2">
-          Emailed invoices, PDFs, and online card payments arrive in the next phases.
+          Online card payments arrive in the next phase. Until then, record cash, check, and card-terminal payments here.
         </p>
       </Sheet>
 
@@ -163,14 +178,22 @@ export function InvoicePage() {
                   </p>
                 </div>
                 <p className={`num text-lg ${p.status === "void" ? "line-through text-steel-2" : ""}`}>{money(p.amount_cents)}</p>
-                {p.status === "succeeded" && !p.provider_ref && (
-                  <Button variant="quiet" onClick={() => setModal({ voidPayment: p })}>Void</Button>
+                {p.status === "succeeded" && (
+                  <div className="flex w-full flex-wrap gap-1 sm:w-auto">
+                    <a href={`/api/payments/${p.id}/receipt`} target="_blank" rel="noopener" className="inline-flex min-h-12 items-center rounded-md px-3 font-medium hover:bg-black/5">
+                      Receipt
+                    </a>
+                    {inv.party.customer_email && <EmailReceipt paymentId={p.id} />}
+                    {!p.provider_ref && <Button variant="quiet" onClick={() => setModal({ voidPayment: p })}>Void</Button>}
+                  </div>
                 )}
               </li>
             ))}
           </ul>
         )}
       </Sheet>
+
+      <DocumentTrail entityType="invoice" entityId={id} />
 
       {(inv.customer_notes || inv.internal_notes) && (
         <Sheet title="Notes">
@@ -199,6 +222,12 @@ export function InvoicePage() {
       )}
     </div>
   );
+}
+
+function EmailReceipt({ paymentId }: { paymentId: number }) {
+  const send = useMutation({ mutationFn: () => api.post<{ email: EmailResult }>(`/payments/${paymentId}/email-receipt`) });
+  if (send.data) return <span role="status" className="min-h-12 content-center px-3 text-[15px] text-steel-2">{send.data.email.message}</span>;
+  return <Button variant="quiet" busy={send.isPending} onClick={() => send.mutate()}>Email receipt</Button>;
 }
 
 function PaymentModal({ inv, onClose }: { inv: Invoice; onClose: () => void }) {

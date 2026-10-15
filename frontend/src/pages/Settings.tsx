@@ -17,8 +17,10 @@ export function SettingsPage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Settings" />
+      <Logo hasLogo={!!data.logo_key} />
       <BusinessForm business={data} />
       <Services />
+      <EmailTemplates />
       <Password />
     </div>
   );
@@ -29,8 +31,10 @@ type Draft = Record<string, string | boolean>;
 function BusinessForm({ business }: { business: Business }) {
   const [d, setD] = useState<Draft>({});
   const [hours, setHours] = useState(business.hours);
+  const [testimonials, setTestimonials] = useState(business.testimonials);
   const [saved, setSaved] = useState(false);
   useEffect(() => setHours(business.hours), [business.hours]);
+  useEffect(() => setTestimonials(business.testimonials), [business.testimonials]);
 
   const val = (k: keyof Business) => (k in d ? d[k] : (business[k] ?? "")) as string;
   const bool = (k: keyof Business) => (k in d ? d[k] : business[k]) as boolean;
@@ -45,7 +49,7 @@ function BusinessForm({ business }: { business: Business }) {
 
   const save = useMutation({
     mutationFn: () => {
-      const body: Record<string, unknown> = { ...d, hours };
+      const body: Record<string, unknown> = { ...d, hours, testimonials: testimonials.filter((t) => t.name.trim() && t.text.trim()) };
       if ("default_labor_rate_cents" in d) body.default_labor_rate_cents = toCents(String(d.default_labor_rate_cents));
       return api.patch<Business>("/settings", body);
     },
@@ -163,6 +167,43 @@ function BusinessForm({ business }: { business: Business }) {
           <div className="sm:col-span-3">
             <Field label="Invoice footer" hint="Warranty terms, thank-you note.">{(p) => <textarea {...p} className="field min-h-16" {...text("invoice_footer")} />}</Field>
           </div>
+          <div className="sm:col-span-3">
+            <Field label="Terms on estimates and authorizations" hint="For example storage fees, diagnostic charges, or how long estimates are good for. Printed above the signature.">
+              {(p) => <textarea {...p} className="field min-h-20" {...text("terms_text")} />}
+            </Field>
+          </div>
+          <label className="flex min-h-12 items-center gap-3 sm:col-span-3">
+            <input type="checkbox" className="h-6 w-6" {...check("allow_typed_signature")} /> Let customers type their name instead of drawing a signature
+          </label>
+        </div>
+      </Sheet>
+
+      <Sheet title="Notifications">
+        <div className="p-4">
+          <label className="flex min-h-12 items-center gap-3">
+            <input type="checkbox" className="h-6 w-6" {...check("notify_by_email")} />
+            Email me when a booking request, question, or customer approval comes in
+          </label>
+          <p className="text-[15px] text-steel-2">Sent to the shop email above. Everything also shows on the Today screen.</p>
+        </div>
+      </Sheet>
+
+      <Sheet title="Reviews on your website">
+        <div className="space-y-4 p-4">
+          <p className="text-[15px] text-steel-2">Only add real reviews from real customers, with their permission. The section stays hidden until you add one.</p>
+          {testimonials.map((t, i) => (
+            <div key={i} className="grid gap-2 rounded-md border border-line p-3 sm:grid-cols-[12rem_1fr_auto] sm:items-start">
+              <input aria-label="Customer name" className="field" placeholder="Name, e.g. Maria G." value={t.name}
+                onChange={(e) => { setSaved(false); setTestimonials(testimonials.map((x, j) => j === i ? { ...x, name: e.target.value } : x)); }} />
+              <textarea aria-label="Review" className="field min-h-20" value={t.text}
+                onChange={(e) => { setSaved(false); setTestimonials(testimonials.map((x, j) => j === i ? { ...x, text: e.target.value } : x)); }} />
+              <Button type="button" variant="quiet" onClick={() => { setSaved(false); setTestimonials(testimonials.filter((_, j) => j !== i)); }}>Remove</Button>
+            </div>
+          ))}
+          {testimonials.length < 12 && (
+            <Button type="button" onClick={() => setTestimonials([...testimonials, { name: "", text: "" }])}>Add a review</Button>
+          )}
+          <Field label="Link to your reviews" hint="Google, Yelp, or similar.">{(p) => <input {...p} className="field" type="url" {...text("reviews_url")} />}</Field>
         </div>
       </Sheet>
 
@@ -248,5 +289,92 @@ function Password() {
         <div className="sm:col-span-2"><ErrorNote error={save.error && !fieldError(save.error, "new_password") ? save.error : null} /></div>
       </form>
     </Sheet>
+  );
+}
+
+
+function Logo({ hasLogo }: { hasLogo: boolean }) {
+  const [error, setError] = useState<string | null>(null);
+  const [stamp, setStamp] = useState(0);
+  const upload = useMutation({
+    mutationFn: (image: string) => api.post("/settings/logo", { image }),
+    onSuccess: () => setStamp(Date.now()),
+  });
+  const remove = useMutation({ mutationFn: () => api.del("/settings/logo") });
+  const pick = (file: File | undefined) => {
+    setError(null);
+    if (!file) return;
+    if (!["image/png", "image/jpeg"].includes(file.type)) return setError("Choose a PNG or JPEG image.");
+    if (file.size > 2_000_000) return setError("That image is over 2 MB. Choose a smaller one.");
+    const reader = new FileReader();
+    reader.onload = () => upload.mutate(String(reader.result));
+    reader.readAsDataURL(file);
+  };
+  return (
+    <Sheet title="Logo">
+      <div className="flex flex-wrap items-center gap-4 p-4">
+        {hasLogo ? (
+          <img src={`/api/public/logo?v=${stamp}`} alt="Current logo" className="h-16 w-auto rounded border border-line bg-white p-1" />
+        ) : (
+          <p className="text-steel-2">No logo yet. Your shop name is used instead.</p>
+        )}
+        <label className="inline-flex min-h-12 cursor-pointer items-center rounded-md border border-line bg-sheet px-4 font-medium hover:border-steel">
+          {upload.isPending ? "Uploading…" : hasLogo ? "Replace logo" : "Upload logo"}
+          <input type="file" accept="image/png,image/jpeg" className="sr-only" onChange={(e) => pick(e.target.files?.[0])} />
+        </label>
+        {hasLogo && <Button variant="quiet" busy={remove.isPending} onClick={() => remove.mutate()}>Remove</Button>}
+        <p className="w-full text-[15px] text-steel-2">Appears on your website, estimates, invoices, and receipts.</p>
+        <div className="w-full"><ErrorNote error={error ?? upload.error ?? remove.error} /></div>
+      </div>
+    </Sheet>
+  );
+}
+
+type TemplateRow = { key: string; label: string; subject: string; body: string; edited: boolean; default_subject: string; default_body: string };
+
+function EmailTemplates() {
+  const { data } = useQuery({
+    queryKey: ["email-templates"],
+    queryFn: () => api.get<{ placeholders: string[]; templates: TemplateRow[] }>("/email-templates"),
+  });
+  const [editing, setEditing] = useState<TemplateRow | null>(null);
+  return (
+    <Sheet title="Emails to customers">
+      <ul>
+        {data?.templates.map((t) => (
+          <li key={t.key} className="flex items-center gap-3 border-b border-line px-4 py-2 last:border-0">
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{t.label} {t.edited && <span className="font-normal text-steel-2">(edited)</span>}</p>
+              <p className="truncate text-[15px] text-steel-2">{t.subject}</p>
+            </div>
+            <Button variant="quiet" onClick={() => setEditing(t)}>Edit</Button>
+          </li>
+        ))}
+      </ul>
+      {editing && data && <TemplateModal t={editing} placeholders={data.placeholders} onClose={() => setEditing(null)} />}
+    </Sheet>
+  );
+}
+
+function TemplateModal({ t, placeholders, onClose }: { t: TemplateRow; placeholders: string[]; onClose: () => void }) {
+  const [subject, setSubject] = useState(t.subject);
+  const [body, setBody] = useState(t.body);
+  const save = useMutation({ mutationFn: () => api.put(`/email-templates/${t.key}`, { subject, body }), onSuccess: onClose });
+  const reset = useMutation({ mutationFn: () => api.del(`/email-templates/${t.key}`), onSuccess: onClose });
+  return (
+    <Modal title={t.label} onClose={onClose}>
+      <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
+        <ErrorNote error={save.error ?? reset.error} />
+        <Field label="Subject">{(p) => <input {...p} className="field" required value={subject} onChange={(e) => setSubject(e.target.value)} />}</Field>
+        <Field label="Message">{(p) => <textarea {...p} className="field min-h-56" required value={body} onChange={(e) => setBody(e.target.value)} />}</Field>
+        <p className="text-[15px] text-steel-2">
+          Words in braces are filled in for each customer: {placeholders.map((x) => `{${x}}`).join(", ")}.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" variant="primary" className="flex-1" busy={save.isPending}>Save email</Button>
+          {t.edited && <Button type="button" variant="quiet" busy={reset.isPending} onClick={() => reset.mutate()}>Restore original</Button>}
+        </div>
+      </form>
+    </Modal>
   );
 }
