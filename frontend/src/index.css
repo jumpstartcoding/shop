@@ -1,0 +1,78 @@
+@import "tailwindcss";
+@import "@fontsource/barlow/400.css";
+@import "@fontsource/barlow/500.css";
+@import "@fontsource/barlow/600.css";
+@import "@fontsource/barlow-condensed/600.css";
+@import "@fontsource/barlow-condensed/700.css";
+
+/*
+  Shop floor palette. Steel and concrete for the working surface, safety yellow for the one
+  thing to press, signal red / go green / hold amber for state. High contrast for glare and
+  greasy-thumb use; nothing relies on color alone (every status also has a word).
+*/
+@theme {
+  --color-steel: #1f2a30;
+  --color-steel-2: #43525a;
+  --color-steel-3: #6b7a82;
+  --color-concrete: #e7eae8;
+  --color-sheet: #ffffff;
+  --color-line: #cbd2cf;
+  --color-safety: #f2c200;
+  --color-safety-deep: #c99f00;
+  --color-signal: #b3302a;
+  --color-signal-wash: #fbe9e7;
+  --color-go: #276b43;
+  --color-go-wash: #e3f1e8;
+  --color-hold: #9a5b00;
+  --color-hold-wash: #fdf0d8;
+
+  --font-sans: "Barlow", system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    background: var(--color-concrete);
+    color: var(--color-steel);
+    font-family: var(--font-sans);
+    font-size: 17px;
+  }
+  body {
+    min-height: 100dvh;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-safety-deep);
+    outline-offset: 2px;
+  }
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .num {
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+  }
+  .field {
+    @apply block w-full min-h-12 rounded-md border border-line bg-sheet px-3 py-2 text-steel placeholder:text-steel-3;
+  }
+  .field:focus {
+    @apply border-steel outline-none ring-2 ring-safety;
+  }
+  .field[aria-invalid="true"] {
+    @apply border-signal;
+  }
+}

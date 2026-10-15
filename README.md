@@ -11,7 +11,7 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 | Phase | Scope | State |
 |---|---|---|
 | 1a | Backend core: auth, customers, vehicles, appointments, work orders, estimates, invoices, manual payments, settings, services catalog, dashboard, search, audit log | **Done** (54 tests passing) |
-| 1b | Mobile-first admin UI (React) | Next |
+| 1b | Mobile-first admin UI (React) | **Done** |
 | 2 | Customer links, PDFs, email, digital signatures, public website and booking | Planned |
 | 3 | Stripe online payments, receipts, refunds | Planned |
 | 4 | Inspections, photos, service history | Planned |
@@ -29,6 +29,18 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 - **Dashboard:** today's and upcoming appointments, requests to review, open work orders, vehicles in the shop, estimates awaiting the customer, unpaid and recently paid invoices, revenue today/week/month/year, outstanding balance, and a short list of things needing attention.
 - **Audit log:** every change to customers, documents, payments, and settings, with who, when, and what changed. Internal note contents are not copied into the log.
 
+### What Phase 1b adds
+A mobile-first admin app at `/admin`, built for a phone in one hand in the bay and a laptop at the counter:
+
+- **Today:** what needs attention, money in this week/month/year, what's owed, vehicles in the shop, today's bookings, requests, estimates out, unpaid invoices.
+- **Board:** jobs grouped by stage, one tap to move to the next stage; closing out goes through the checklist.
+- **Work order:** the job's "tag" (number, vehicle, customer, concern), a sideways status strip, parts and labor with shop-rate and markup defaults, estimate and invoice in one tap, notes with internal notes clearly marked.
+- **Estimates and invoices:** lock state explained in plain words, record a phone/in-person approval, new versions, record cash/check/card payments with partial amounts, void with a reason.
+- **Calendar:** day, week, and month views; requests without a time listed first; drag to another day on desktop; turn an online request into a customer with the form prefilled; check in straight to a work order.
+- **Customers and vehicles:** one-step add with the first vehicle, call/text/email buttons, full history per customer and per vehicle.
+- **Settings:** shop profile, hours, pricing and tax, document prefixes, authorization wording, website services, password.
+- Global search from every screen; 48px+ touch targets; keyboard focus visible; works without horizontal scrolling at 390px wide.
+
 What it does **not** do yet: send email, generate PDFs, take signatures, take card payments online, or show a website. Those endpoints don't exist rather than existing as stubs. "Mark sent" records that you handed or sent a document yourself.
 
 ## Local development
@@ -45,7 +57,15 @@ uv run python -m app.tasks seed-demo       # placeholder shop + demo workflow
 uv run uvicorn app.main:app --reload
 ```
 
-Then open http://localhost:8000/api/docs for the interactive API documentation. Demo sign-in: `demo@example.com` / `demo-password-123` (created only by `seed-demo`, which refuses to run in production).
+Then open http://localhost:8000/api/docs for the interactive API documentation.
+
+In a second terminal, start the admin app (Node 20+):
+
+```bash
+cd frontend
+npm install
+npm run dev            # http://localhost:5173/admin, proxies /api to :8000
+``` Demo sign-in: `demo@example.com` / `demo-password-123` (created only by `seed-demo`, which refuses to run in production).
 
 To create the real owner account instead:
 
@@ -76,6 +96,11 @@ backend/
     tasks.py     migrate, create-admin, nightly, seed-demo
   migrations/    Alembic
   tests/
+frontend/
+  src/
+    components/  layout, line-item editor, pickers, shared UI
+    pages/       one file per screen
+    lib/         API client (cookies + CSRF), formatting, types
 docs/ARCHITECTURE.md
 ```
 

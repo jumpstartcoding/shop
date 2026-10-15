@@ -1,0 +1,240 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { Empty, ErrorNote, Loading, RowLink, Sheet, StatusBadge } from "../components/ui";
+import { api } from "../lib/api";
+import { dayLabel, money, time } from "../lib/format";
+import type { WorkOrderCard } from "../lib/types";
+
+type ApptRow = {
+  id: number;
+  status: string;
+  starts_at: string | null;
+  customer_name: string | null;
+  vehicle_name: string | null;
+  requested_service: string | null;
+};
+type InvRow = {
+  id: number;
+  number: string;
+  status: string;
+  customer_name: string;
+  total_cents: number;
+  balance_cents: number;
+  due_date: string | null;
+  paid_at: string | null;
+};
+type DashboardData = {
+  as_of: string;
+  notifications: { kind: string; count: number; message: string }[];
+  appointments_today: ApptRow[];
+  appointments_upcoming: ApptRow[];
+  appointment_requests: ApptRow[];
+  open_work_orders: WorkOrderCard[];
+  vehicles_in_shop: WorkOrderCard[];
+  pending_estimates: { id: number; number: string; status: string; customer_name: string; total_cents: number; sent_at: string | null }[];
+  unpaid_invoices: InvRow[];
+  recently_paid_invoices: InvRow[];
+  revenue: { today_cents: number; week_cents: number; month_cents: number; year_cents: number };
+  outstanding_cents: number;
+};
+
+const NOTE_LINK: Record<string, string> = {
+  appointment_requests: "/admin/calendar",
+  ready_for_pickup: "/admin/board",
+  estimates_awaiting: "/admin/estimates?status=sent",
+  invoices_overdue: "/admin/invoices?unpaid=1",
+};
+
+export function Dashboard() {
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: () => api.get<DashboardData>("/dashboard"),
+    refetchInterval: 60_000,
+  });
+  if (isLoading) return <Loading />;
+  if (error || !data) return <ErrorNote error={error} />;
+
+  const greeting = dayLabel(data.as_of.slice(0, 10));
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+        <h1 className="font-display text-[34px] font-bold leading-tight">{greeting}</h1>
+        <p className="text-steel-2">
+          {data.vehicles_in_shop.length} in the shop, {data.appointments_today.length} booked today
+        </p>
+      </div>
+
+      {data.notifications.length > 0 && (
+        <ul className="space-y-2" aria-label="Needs attention">
+          {data.notifications.map((n) => (
+            <li key={n.kind}>
+              <Link
+                to={NOTE_LINK[n.kind] ?? "/admin"}
+                className="flex min-h-12 items-center border-l-[6px] border-safety bg-sheet px-4 py-2 font-medium"
+              >
+                {n.message}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <Money data={data} />
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Sheet title="In the shop" action={<Link className="min-h-12 content-center underline underline-offset-4" to="/admin/board">Board</Link>}>
+          {data.vehicles_in_shop.length === 0 ? (
+            <Empty>
+              No vehicles checked in. <Link className="underline" to="/admin/work-orders/new">Start a work order</Link>
+            </Empty>
+          ) : (
+            <ul>
+              {data.vehicles_in_shop.map((w) => (
+                <RowLink key={w.id} to={`/admin/work-orders/${w.id}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{w.vehicle_name}</p>
+                    <p className="truncate text-[15px] text-steel-2">{w.customer_name}, {w.number}</p>
+                  </div>
+                  <StatusBadge status={w.status} />
+                </RowLink>
+              ))}
+            </ul>
+          )}
+        </Sheet>
+
+        <Sheet title="Today" action={<Link className="min-h-12 content-center underline underline-offset-4" to="/admin/calendar">Calendar</Link>}>
+          {data.appointments_today.length === 0 ? (
+            <Empty>Nothing booked today.</Empty>
+          ) : (
+            <ul>
+              {data.appointments_today.map((a) => (
+                <ApptLink key={a.id} a={a} showTime />
+              ))}
+            </ul>
+          )}
+          {data.appointments_upcoming.length > 0 && (
+            <>
+              <h3 className="border-t border-line px-4 pt-3 pb-1 font-display text-lg font-semibold">Next 7 days</h3>
+              <ul>
+                {data.appointments_upcoming.map((a) => (
+                  <ApptLink key={a.id} a={a} showDay />
+                ))}
+              </ul>
+            </>
+          )}
+        </Sheet>
+
+        {data.appointment_requests.length > 0 && (
+          <Sheet title="Requests to review">
+            <ul>
+              {data.appointment_requests.map((a) => (
+                <ApptLink key={a.id} a={a} />
+              ))}
+            </ul>
+          </Sheet>
+        )}
+
+        <Sheet title="Waiting on the customer">
+          {data.pending_estimates.length === 0 ? (
+            <Empty>No estimates out for approval.</Empty>
+          ) : (
+            <ul>
+              {data.pending_estimates.map((e) => (
+                <RowLink key={e.id} to={`/admin/estimates/${e.id}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{e.customer_name}</p>
+                    <p className="text-[15px] text-steel-2">{e.number}</p>
+                  </div>
+                  <span className="num text-lg">{money(e.total_cents)}</span>
+                </RowLink>
+              ))}
+            </ul>
+          )}
+        </Sheet>
+
+        <Sheet title="Unpaid invoices">
+          {data.unpaid_invoices.length === 0 ? (
+            <Empty>Everything is paid up.</Empty>
+          ) : (
+            <ul>
+              {data.unpaid_invoices.map((i) => (
+                <RowLink key={i.id} to={`/admin/invoices/${i.id}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{i.customer_name}</p>
+                    <p className="text-[15px] text-steel-2">{i.number}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="num text-lg">{money(i.balance_cents)}</p>
+                    <StatusBadge status={i.status} />
+                  </div>
+                </RowLink>
+              ))}
+            </ul>
+          )}
+        </Sheet>
+
+        {data.recently_paid_invoices.length > 0 && (
+          <Sheet title="Recently paid">
+            <ul>
+              {data.recently_paid_invoices.map((i) => (
+                <RowLink key={i.id} to={`/admin/invoices/${i.id}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{i.customer_name}</p>
+                    <p className="text-[15px] text-steel-2">{i.number}</p>
+                  </div>
+                  <span className="num text-lg">{money(i.total_cents)}</span>
+                </RowLink>
+              ))}
+            </ul>
+          </Sheet>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Money({ data }: { data: DashboardData }) {
+  const cells: [string, number][] = [
+    ["Today", data.revenue.today_cents],
+    ["This week", data.revenue.week_cents],
+    ["This month", data.revenue.month_cents],
+    ["This year", data.revenue.year_cents],
+  ];
+  return (
+    <section aria-label="Money" className="rounded-lg bg-steel text-white">
+      <div className="grid grid-cols-2 sm:grid-cols-5">
+        {cells.map(([label, cents]) => (
+          <div key={label} className="border-b border-white/10 px-4 py-3 sm:border-r sm:border-b-0">
+            <p className="text-[15px] text-white/70">{label}</p>
+            <p className="num text-2xl font-semibold">{money(cents)}</p>
+          </div>
+        ))}
+        <Link to="/admin/invoices?unpaid=1" className="col-span-2 px-4 py-3 sm:col-span-1">
+          <p className="text-[15px] text-white/70">Owed to you</p>
+          <p className="num text-2xl font-semibold text-safety">{money(data.outstanding_cents)}</p>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function ApptLink({ a, showTime, showDay }: { a: ApptRow; showTime?: boolean; showDay?: boolean }) {
+  return (
+    <RowLink to={`/admin/calendar?appointment=${a.id}`}>
+      {(showTime || showDay) && (
+        <span className="num w-20 shrink-0 text-lg">
+          {showDay && a.starts_at ? dayLabel(a.starts_at).split(",")[0] + " " : ""}
+          {a.starts_at ? time(a.starts_at) : ""}
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-semibold">{a.customer_name ?? "New customer"}</p>
+        <p className="truncate text-[15px] text-steel-2">
+          {[a.vehicle_name, a.requested_service].filter(Boolean).join(", ")}
+        </p>
+      </div>
+      <StatusBadge status={a.status} />
+    </RowLink>
+  );
+}
