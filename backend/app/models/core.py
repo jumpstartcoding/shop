@@ -119,6 +119,8 @@ class Business(IdMixin, TimestampMixin, Base):
     # Real customer reviews the shop chooses to show: [{"name": ..., "text": ...}].
     testimonials: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     reviews_url: Mapped[str | None] = mapped_column(String(300))
+    # Show "Pay online" on invoice links (also requires Stripe keys on the server).
+    online_payments_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class Service(IdMixin, TimestampMixin, ArchiveMixin, Base):

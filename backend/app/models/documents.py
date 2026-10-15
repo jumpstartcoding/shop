@@ -43,6 +43,8 @@ ESTIMATE_STATUSES = ("draft", "sent", "viewed", "approved", "declined", "expired
 INVOICE_STATUSES = ("draft", "sent", "viewed", "partially_paid", "paid", "overdue", "void")
 PAYMENT_METHODS = ("cash", "check", "card", "online", "other")
 PAYMENT_STATUSES = ("pending", "succeeded", "failed", "refunded", "void")
+# Statuses whose (amount - refunded) counts toward what's been paid.
+COUNTED = ("succeeded", "refunded")
 
 QC_CHECKLIST_KEYS = (
     "repair_completed",
@@ -229,7 +231,16 @@ class Invoice(IdMixin, TimestampMixin, TotalsMixin, Base):
 
     @property
     def balance_cents(self) -> int:
+        if self.status == "void":
+            return 0
         return max(self.total_cents - self.amount_paid_cents, 0)
+
+    @property
+    def overpaid_cents(self) -> int:
+        """Money held beyond what's owed (two payments raced, or paid after voiding).
+        The shop should refund it."""
+        owed = 0 if self.status == "void" else self.total_cents
+        return max(self.amount_paid_cents - owed, 0)
 
 
 class InvoiceItem(LineItemMixin, Base):
@@ -247,6 +258,9 @@ class Payment(IdMixin, TimestampMixin, Base):
         CheckConstraint(f"method IN {PAYMENT_METHODS}", name="method"),
         CheckConstraint(f"status IN {PAYMENT_STATUSES}", name="status"),
         CheckConstraint("amount_cents > 0", name="amount_positive"),
+        CheckConstraint(
+            "refunded_cents >= 0 AND refunded_cents <= amount_cents", name="refund_within_amount"
+        ),
     )
 
     invoice_id: Mapped[int] = mapped_column(
@@ -265,5 +279,15 @@ class Payment(IdMixin, TimestampMixin, Base):
     )
     voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     void_reason: Mapped[str | None] = mapped_column(String(300))
+    # Money returned to the customer. Partial refunds leave status "succeeded";
+    # a full refund sets status "refunded". Amount paid on the invoice is net of refunds.
+    refunded_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    refunded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Stripe Checkout session, for looking a payment up in the Stripe dashboard.
+    provider_session_id: Mapped[str | None] = mapped_column(String(200))
 
     invoice: Mapped[Invoice] = relationship(back_populates="payments")
+
+    @property
+    def net_cents(self) -> int:
+        return self.amount_cents - self.refunded_cents if self.status in COUNTED else 0

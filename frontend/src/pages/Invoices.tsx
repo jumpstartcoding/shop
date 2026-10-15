@@ -62,7 +62,7 @@ const METHOD_LABEL: Record<string, string> = { cash: "Cash", check: "Check", car
 
 export function InvoicePage() {
   const id = Number(useParams().id);
-  const [modal, setModal] = useState<null | "pay" | "void" | "edit" | { voidPayment: Payment }>(null);
+  const [modal, setModal] = useState<null | "pay" | "void" | "edit" | { voidPayment: Payment } | { refundPayment: Payment }>(null);
   const { data: inv, error, isLoading } = useQuery({
     queryKey: ["invoice", id],
     queryFn: () => api.get<Invoice>(`/invoices/${id}`),
@@ -118,6 +118,13 @@ export function InvoicePage() {
           )}
         </div>
       </section>
+
+      {inv.overpaid_cents > 0 && (
+        <p role="alert" className="rounded-md border-l-[6px] border-signal bg-signal-wash px-4 py-3 text-signal">
+          <strong>{money(inv.overpaid_cents)} more than owed was received.</strong>{" "}
+          {isVoid ? "This invoice is void, so the payment should be refunded." : "Two payments probably overlapped. Refund the extra from the payment list below."}
+        </p>
+      )}
 
       <Sheet title="Details">
         <Dl
@@ -176,15 +183,21 @@ export function InvoicePage() {
                     {dateTime(p.paid_at)}
                     {p.status === "void" && `. Voided: ${p.void_reason}`}
                   </p>
+                  {p.refunded_cents > 0 && (
+                    <p className="text-[15px] font-medium text-signal">
+                      {p.status === "refunded" ? "Fully refunded" : `${money(p.refunded_cents)} refunded`}, {dateTime(p.refunded_at)}
+                    </p>
+                  )}
                 </div>
-                <p className={`num text-lg ${p.status === "void" ? "line-through text-steel-2" : ""}`}>{money(p.amount_cents)}</p>
+                <p className={`num text-lg ${p.status === "void" || p.status === "refunded" ? "line-through text-steel-2" : ""}`}>{money(p.amount_cents)}</p>
                 {p.status === "succeeded" && (
                   <div className="flex w-full flex-wrap gap-1 sm:w-auto">
+                    <Button variant="quiet" onClick={() => setModal({ refundPayment: p })}>Refund</Button>
                     <a href={`/api/payments/${p.id}/receipt`} target="_blank" rel="noopener" className="inline-flex min-h-12 items-center rounded-md px-3 font-medium hover:bg-black/5">
                       Receipt
                     </a>
                     {inv.party.customer_email && <EmailReceipt paymentId={p.id} />}
-                    {!p.provider_ref && <Button variant="quiet" onClick={() => setModal({ voidPayment: p })}>Void</Button>}
+                    {!p.provider_ref && p.refunded_cents === 0 && <Button variant="quiet" onClick={() => setModal({ voidPayment: p })}>Void</Button>}
                   </div>
                 )}
               </li>
@@ -215,7 +228,10 @@ export function InvoicePage() {
           help="The invoice keeps its number and stays in your records, marked void." />
       )}
       {modal === "edit" && <EditInvoice inv={inv} onClose={() => setModal(null)} />}
-      {modal && typeof modal === "object" && (
+      {modal && typeof modal === "object" && "refundPayment" in modal && (
+        <RefundModal payment={modal.refundPayment} onClose={() => setModal(null)} />
+      )}
+      {modal && typeof modal === "object" && "voidPayment" in modal && (
         <ReasonModal title={`Void ${money(modal.voidPayment.amount_cents)} payment`} action="Void payment"
           path={`/payments/${modal.voidPayment.id}/void`} onClose={() => setModal(null)}
           help="Use this for a payment entered by mistake. The amount goes back onto the balance." />
@@ -283,6 +299,47 @@ function PaymentModal({ inv, onClose }: { inv: Invoice; onClose: () => void }) {
         </Field>
         <Button type="submit" variant="primary" className="w-full text-lg" busy={save.isPending}>
           Record {toCents(amount) ? money(toCents(amount)) : "payment"}
+        </Button>
+      </form>
+    </Modal>
+  );
+}
+
+function RefundModal({ payment, onClose }: { payment: Payment; onClose: () => void }) {
+  const available = payment.amount_cents - payment.refunded_cents;
+  const [amount, setAmount] = useState(centsToInput(available));
+  const [reason, setReason] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const online = !!payment.provider_ref;
+  const save = useMutation({
+    mutationFn: (cents: number) => api.post(`/payments/${payment.id}/refund`, { amount_cents: cents, reason }),
+    onSuccess: onClose,
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const cents = toCents(amount);
+    if (!cents) return setLocalError("Enter the amount to refund.");
+    if (cents > available) return setLocalError(`At most ${money(available)} can be refunded.`);
+    setLocalError(null);
+    save.mutate(cents);
+  };
+  return (
+    <Modal title={`Refund ${METHOD_LABEL[payment.method].toLowerCase()} payment`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <p>
+          {online
+            ? "The money goes back to the customer's card through Stripe, usually within 5 to 10 business days. Stripe doesn't return its processing fee."
+            : "This records the refund. Hand the money back to the customer yourself."}
+        </p>
+        <ErrorNote error={localError ?? save.error} />
+        <Field label="Amount to refund" hint={`Up to ${money(available)}.`}>
+          {(p) => <input {...p} className="field num text-2xl" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />}
+        </Field>
+        <Field label="Reason" hint="Kept in the record.">
+          {(p) => <input {...p} className="field" required minLength={3} value={reason} onChange={(e) => setReason(e.target.value)} />}
+        </Field>
+        <Button type="submit" variant="danger" className="w-full" busy={save.isPending}>
+          {online ? "Refund to card" : "Record refund"} {toCents(amount) ? money(toCents(amount)) : ""}
         </Button>
       </form>
     </Modal>

@@ -25,7 +25,7 @@ type InvRow = {
 };
 type DashboardData = {
   as_of: string;
-  notifications: { kind: string; count: number; message: string }[];
+  notifications: { kind: string; count: number; message: string; entity_id?: number }[];
   appointments_today: ApptRow[];
   appointments_upcoming: ApptRow[];
   appointment_requests: ApptRow[];
@@ -45,6 +45,7 @@ const NOTE_LINK: Record<string, string> = {
   estimates_awaiting: "/admin/estimates?status=sent",
   invoices_overdue: "/admin/invoices?unpaid=1",
   messages: "/admin#messages",
+  online_payments: "/admin/invoices",
 };
 
 const ENTITY_PATH: Record<string, string> = { estimate: "estimates", invoice: "invoices", work_order: "work-orders" };
@@ -74,8 +75,8 @@ export function Dashboard() {
           {data.notifications.map((n) => (
             <li key={n.kind}>
               <Link
-                to={NOTE_LINK[n.kind] ?? "/admin"}
-                className="flex min-h-12 items-center border-l-[6px] border-safety bg-sheet px-4 py-2 font-medium"
+                to={n.kind === "needs_refund" ? `/admin/invoices/${n.entity_id}` : NOTE_LINK[n.kind] ?? "/admin"}
+                className={`flex min-h-12 items-center border-l-[6px] bg-sheet px-4 py-2 font-medium ${n.kind === "needs_refund" ? "border-signal text-signal" : "border-safety"}`}
               >
                 {n.message}
               </Link>

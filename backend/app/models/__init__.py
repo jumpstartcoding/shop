@@ -17,6 +17,7 @@ from app.models.sharing import (
     EmailLog,
     EmailTemplate,
     Inquiry,
+    StripeEvent,
 )
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
     "InvoiceItem",
     "Payment",
     "Service",
+    "StripeEvent",
     "User",
     "UserSession",
     "Vehicle",

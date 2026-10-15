@@ -3,7 +3,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { Button, ErrorNote, Field, Loading, Modal, PageHeader, Sheet } from "../components/ui";
 import { api, fieldError } from "../lib/api";
 import { centsToInput, money, toCents } from "../lib/format";
-import type { Business, Service } from "../lib/types";
+import type { Business, PaymentSettings, Service } from "../lib/types";
 
 const DAYS: [string, string][] = [
   ["mon", "Monday"], ["tue", "Tuesday"], ["wed", "Wednesday"], ["thu", "Thursday"],
@@ -177,6 +177,8 @@ function BusinessForm({ business }: { business: Business }) {
           </label>
         </div>
       </Sheet>
+
+      <PaymentsSheet toggle={check("online_payments_enabled")} />
 
       <Sheet title="Notifications">
         <div className="p-4">
@@ -376,5 +378,33 @@ function TemplateModal({ t, placeholders, onClose }: { t: TemplateRow; placehold
         </div>
       </form>
     </Modal>
+  );
+}
+
+
+function PaymentsSheet({ toggle }: { toggle: { checked: boolean; onChange: (e: { target: { checked: boolean } }) => void } }) {
+  const { data } = useQuery({ queryKey: ["payment-settings"], queryFn: () => api.get<PaymentSettings>("/settings/payments") });
+  return (
+    <Sheet title="Online payments">
+      <div className="space-y-3 p-4">
+        {!data ? null : data.configured ? (
+          <p className={`rounded-md border-l-[6px] px-3 py-2 ${data.mode === "live" ? "border-go bg-go-wash text-go" : "border-hold bg-hold-wash text-hold"}`}>
+            <strong>Stripe is connected in {data.mode} mode.</strong>{" "}
+            {data.mode === "test" ? "Payments use test cards only; no real money moves." : "Customers can pay real money."}
+          </p>
+        ) : (
+          <p className="rounded-md border-l-[6px] border-line bg-concrete px-3 py-2 text-steel-2">
+            Stripe isn't connected yet, so invoice links only show your phone number. Setup is in docs/PAYMENTS.md.
+          </p>
+        )}
+        <label className="flex min-h-12 items-center gap-3">
+          <input type="checkbox" className="h-6 w-6" checked={toggle.checked} onChange={toggle.onChange} disabled={!data?.configured} />
+          Let customers pay invoices online by card, Apple Pay, or Google Pay
+        </label>
+        <p className="text-[15px] text-steel-2">
+          Stripe's standard US rate is 2.9% + 30¢ per card payment, taken before the money reaches your bank. Refunds don't return the fee. Cash and checks you record yourself cost nothing.
+        </p>
+      </div>
+    </Sheet>
   );
 }

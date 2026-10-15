@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { TotalsTable } from "../components/LineItems";
 import { Button, ErrorNote, Field } from "../components/ui";
 import { ApiError, api } from "../lib/api";
-import { date, dateTime, money, phoneHref } from "../lib/format";
+import { centsToInput, date, dateTime, money, phoneHref, toCents } from "../lib/format";
 import { SignaturePad, type SignaturePadHandle } from "./SignaturePad";
 
 type Item = {
@@ -30,6 +30,7 @@ type View = {
   state: {
     can_respond?: boolean; decision?: string | null; signed_at?: string | null; signer_name?: string | null;
     allow_typed_signature?: boolean; authorization_statement?: string; status?: string; balance_cents?: number;
+    can_pay_online?: boolean; min_online_cents?: number;
   };
   receipts?: { id: number; amount_cents: number; paid_at: string }[];
 };
@@ -37,11 +38,28 @@ type View = {
 /** The page a customer opens from a text or email: review, then approve or pay. */
 export function DocumentLink() {
   const { token } = useParams();
+  const [params, setParams] = useSearchParams();
+  // Back from Stripe: the payment is recorded by Stripe's webhook, usually within seconds.
+  // Poll until a new receipt appears rather than trusting the redirect.
+  const returnedFromPayment = params.get("paid") === "1";
+  const [baseline] = useState(() => (returnedFromPayment ? Date.now() : 0));
+  // What the invoice looked like when the customer left for Stripe (saved in PayOnline).
+  const [before] = useState(() => (returnedFromPayment ? readPending(token!) : null));
   const { data, error, isLoading } = useQuery({
     queryKey: ["link", token],
     queryFn: () => api.get<View>(`/public/links/${token}`),
     retry: false,
+    refetchInterval: (q) => {
+      if (!returnedFromPayment || Date.now() - baseline > 60_000) return false;
+      const d = q.state.data as View | undefined;
+      return d && confirmedSince(d, before) ? false : 2000;
+    },
   });
+  const confirmed = !!data && returnedFromPayment && confirmedSince(data, before);
+  useEffect(() => {
+    if (confirmed) clearPending(token!);
+  }, [confirmed, token]);
+  const waitingTooLong = returnedFromPayment && !confirmed && Date.now() - baseline > 60_000;
 
   if (isLoading) return <p className="p-10 text-center text-steel-2">Loading your document…</p>;
   if (error || !data) {
@@ -81,7 +99,23 @@ export function DocumentLink() {
           </p>
         </div>
 
-        {data.purpose === "invoice" ? <InvoiceSummary data={data} token={token!} /> : <DecisionStatus data={data} pdf={pdf} />}
+        {returnedFromPayment && (
+          <div role="status" className={`rounded-lg border-l-[6px] px-4 py-3 ${confirmed ? "border-go bg-go-wash" : "border-hold bg-hold-wash"}`}>
+            {confirmed ? (
+              <>
+                <p className="font-display text-2xl font-semibold text-go">Payment received. Thank you!</p>
+                <p>Your receipt is below{data.document.customer ? " and was emailed if we have your address" : ""}.</p>
+                <button className="mt-1 min-h-11 underline underline-offset-4" onClick={() => setParams({}, { replace: true })}>Dismiss</button>
+              </>
+            ) : waitingTooLong ? (
+              <p>Your payment is still being confirmed. If you were charged, it will show up here shortly; there's no need to pay again. Questions? Call the shop.</p>
+            ) : (
+              <p className="font-medium">Confirming your payment with the card processor… This page updates by itself.</p>
+            )}
+          </div>
+        )}
+
+        {data.purpose === "invoice" ? <InvoiceSummary data={data} token={token!} hidePay={returnedFromPayment && !confirmed} /> : <DecisionStatus data={data} pdf={pdf} />}
 
         <section className="rounded-lg border border-line bg-sheet">
           <div className="border-b border-line px-4 py-3">
@@ -165,16 +199,53 @@ function DecisionStatus({ data, pdf }: { data: View; pdf: string }) {
   );
 }
 
-function InvoiceSummary({ data, token }: { data: View; token: string }) {
+type Pending = { balance: number; receipts: number };
+
+function readPending(token: string): Pending | null {
+  try {
+    const raw = sessionStorage.getItem(`pay:${token}`);
+    return raw ? (JSON.parse(raw) as Pending) : null;
+  } catch {
+    return null;
+  }
+}
+function savePending(token: string, p: Pending) {
+  try {
+    sessionStorage.setItem(`pay:${token}`, JSON.stringify(p));
+  } catch {
+    /* storage unavailable: the page falls back to recent receipts */
+  }
+}
+function clearPending(token: string) {
+  try {
+    sessionStorage.removeItem(`pay:${token}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+function confirmedSince(d: View, before: Pending | null): boolean {
+  const balance = d.state.balance_cents ?? 0;
+  const receipts = d.receipts ?? [];
+  if (before) return balance < before.balance || receipts.length > before.receipts;
+  // Opened on a different device or storage was blocked: a receipt from the last half hour counts.
+  return balance === 0 || receipts.some((r) => Date.now() - new Date(r.paid_at).getTime() < 30 * 60_000);
+}
+
+function InvoiceSummary({ data, token, hidePay }: { data: View; token: string; hidePay?: boolean }) {
   const bal = data.state.balance_cents ?? 0;
+  const canPay = bal > 0 && data.state.can_pay_online && !hidePay;
   return (
     <div className={`rounded-lg px-4 py-4 ${bal > 0 ? "bg-steel text-white" : "border-l-[6px] border-go bg-go-wash"}`}>
       <p className={bal > 0 ? "text-white/80" : "text-go"}>{bal > 0 ? "Balance due" : "Paid in full"}</p>
       <p className={`num text-5xl font-bold ${bal > 0 ? "text-safety" : "text-go"}`}>{money(bal > 0 ? bal : data.document.totals.total_cents)}</p>
       {bal > 0 && data.document.due_date && <p className="text-white/80">Due {date(data.document.due_date)}</p>}
+      {canPay && <PayOnline token={token} balance={bal} min={data.state.min_online_cents ?? 100} receipts={data.receipts?.length ?? 0} />}
       {bal > 0 && data.shop.phone && (
-        <p className="mt-2 text-white/90">
-          To pay, call <a className="font-semibold underline" href={phoneHref(data.shop.phone)}>{data.shop.phone}</a> or pay at the shop.
+        <p className="mt-3 text-white/90">
+          {canPay ? "Or call " : "To pay, call "}
+          <a className="font-semibold underline" href={phoneHref(data.shop.phone)}>{data.shop.phone}</a>
+          {canPay ? " to pay by phone, or pay at the shop." : " or pay at the shop."}
         </p>
       )}
       {(data.receipts?.length ?? 0) > 0 && (
@@ -190,6 +261,55 @@ function InvoiceSummary({ data, token }: { data: View; token: string }) {
         </ul>
       )}
     </div>
+  );
+}
+
+function PayOnline({ token, balance, min, receipts }: { token: string; balance: number; min: number; receipts: number }) {
+  const [partial, setPartial] = useState(false);
+  const [amount, setAmount] = useState(centsToInput(balance));
+  const [localError, setLocalError] = useState<string | null>(null);
+  const start = useMutation({
+    mutationFn: (cents: number) => api.post<{ url: string }>(`/public/links/${token}/checkout`, { amount_cents: cents }),
+    onSuccess: ({ url }) => {
+      savePending(token, { balance, receipts });
+      window.location.assign(url);
+    },
+  });
+  const pay = (e: FormEvent) => {
+    e.preventDefault();
+    setLocalError(null);
+    const cents = partial ? toCents(amount) : balance;
+    if (!cents) return setLocalError("Enter an amount, like 100.00.");
+    if (cents < min) return setLocalError(`The smallest online payment is ${money(min)}.`);
+    if (cents > balance) return setLocalError(`That's more than the ${money(balance)} balance.`);
+    start.mutate(cents);
+  };
+  const shown = partial ? toCents(amount) : balance;
+  return (
+    <form onSubmit={pay} className="mt-4 space-y-3">
+      {partial && (
+        <div>
+          <label htmlFor="pay-amount" className="block text-white/80">Amount to pay now</label>
+          <input id="pay-amount" className="field num mt-1 text-2xl" inputMode="decimal" value={amount}
+            onChange={(e) => setAmount(e.target.value)} />
+        </div>
+      )}
+      {(localError || start.error) && (
+        <p role="alert" className="rounded-md bg-signal-wash px-3 py-2 text-signal">
+          {localError ?? (start.error instanceof ApiError ? start.error.message : "The payment page couldn't be opened. No charge was made.")}
+        </p>
+      )}
+      <Button type="submit" variant="primary" className="w-full text-lg" busy={start.isPending}>
+        Pay {shown ? money(shown) : ""} with card
+      </Button>
+      <button type="button" className="min-h-11 text-white/90 underline underline-offset-4"
+        onClick={() => { setPartial((p) => !p); setAmount(centsToInput(balance)); }}>
+        {partial ? "Pay the full balance instead" : "Pay part of the balance"}
+      </button>
+      <p className="text-[15px] text-white/75">
+        You'll pay on Stripe's secure page. Apple Pay and Google Pay work there on supported devices. The shop never sees your card number.
+      </p>
+    </form>
   );
 }
 

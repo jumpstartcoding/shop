@@ -85,7 +85,7 @@ All money is stored as **integer cents**. Quantities and hours are `NUMERIC(10,2
 | `authorizations` | 2 | Signature/approval records (covers spec's `estimate_approvals` and §56): signer name/contact, decision, method (drawn, typed, link decline, or recorded by the shop from phone/in person), statement text shown, signature image key or typed name, IP, user agent, timestamp, `document_version_id`, `signed_version_id`, status (valid/superseded). |
 | `inquiries` | 2 | Website contact messages and customers' questions about a document. |
 | `email_templates`, `email_log` | 2 | Shop edits to built-in templates (absent row = built-in wording); every send attempt with status sent/failed/skipped. |
-| `stripe_events` | 3 | Processed webhook event IDs, for idempotency. |
+| `stripe_events` | 3 | Processed webhook event IDs and outcomes, inserted in the payment's transaction for idempotency. Payments gained `refunded_cents`, `refunded_at`, and `provider_session_id`. |
 | `inspections`, `inspection_items` | 4 | Digital inspection (Good / Monitor / Needs Attention / Urgent) with recommended repair and estimated cost. |
 | `photos` | 4 | S3 key + polymorphic owner (`work_order`, `inspection_item`, `vehicle`, …). |
 | `service_records` | 4 | Written when a work order completes, plus manual entries for history done elsewhere. |
@@ -163,7 +163,10 @@ mechanic-shop/
 3. Customer pays on Stripe's page (cards, Apple Pay, Google Pay).
 4. Stripe calls `POST /api/webhooks/stripe`. The handler verifies the signature against the raw body, records the event ID in `stripe_events` (unique, so replays are no-ops), then inserts the payment and recomputes the invoice balance **in one transaction with the invoice row locked**.
 5. The success redirect page never marks anything paid; it only polls the invoice. The webhook is the single source of truth.
-6. Refunds (`charge.refunded`) create a negative adjustment and an audit entry.
+6. Refunds are tracked on the payment (`refunded_cents`); the invoice's paid amount is always recomputed from payments net of refunds, never incremented. Refunds made from the app call Stripe first and change nothing if Stripe refuses; refunds made in the Stripe dashboard arrive as `charge.refunded` and are synced.
+7. Overlapping payments or a payment on a voided invoice are recorded (the money was taken) and flagged as overpaid for the shop to refund.
+
+Details and setup: [PAYMENTS.md](PAYMENTS.md).
 
 Stored: amount, method, Stripe payment intent ID, status, timestamps. Never stored: card numbers, CVC, or anything else Stripe doesn't return as safe metadata.
 
@@ -236,7 +239,7 @@ Each phase ships working, tested functionality. Nothing is stubbed to look finis
 | **1a** Backend core (done) | Config, DB, migrations, auth, audit log, pricing engine, numbering; customers, vehicles, appointments, work orders, estimates, invoices, manual payments, settings, services catalog, dashboard summary, global search; tests on real Postgres. |
 | **1b** Admin UI (done) | Mobile-first React admin: dashboard, search, customers, vehicles, calendar, work order editor + status board, estimates, invoices, record payment, settings. |
 | **2** Customer links, PDFs, email, signatures (done) | Access tokens, customer estimate/invoice pages, approve/decline/question, additional-repair approvals, signature capture, document versions and locking, WeasyPrint PDFs, SES email + editable templates, public website + booking form. |
-| **3** Online payments | Stripe Checkout, webhook handling (heavily tested), receipts, refunds. |
+| **3** Online payments (done) | Stripe Checkout, webhook handling (heavily tested), receipts, refunds. |
 | **4** Inspections and photos | Digital inspection, presigned uploads with client-side compression, inspection report PDF, service history, QC checklist enforcement. |
 | **5** Shop admin | Parts, vendors, expenses, maintenance reminders + nightly job, reports with date filters, CSV export, VIN decode via the free NHTSA vPIC API (optional, app works without it). |
 | **6** Production hardening | SAM template, CI, backup workflow, security review against §52, DEPLOYMENT/SECURITY/BACKUPS docs, README completion, demo data. |

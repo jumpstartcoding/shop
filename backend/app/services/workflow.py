@@ -28,7 +28,7 @@ from app.models import (
     WorkOrder,
     WorkOrderItem,
 )
-from app.models.documents import QC_CHECKLIST_KEYS
+from app.models.documents import COUNTED, QC_CHECKLIST_KEYS
 from app.schemas.documents import (
     DecisionIn,
     EstimateCreate,
@@ -609,6 +609,21 @@ def void_invoice(db: Session, user: User, inv: Invoice, reason: str) -> None:
 # ---------------------------------------------------------------- payments
 
 
+def recompute_paid(db: Session, inv: Invoice) -> None:
+    """Amount paid is always the sum of payments, net of refunds, read from the database.
+    Never adjusted by increments, so a retried or concurrent change can't drift it."""
+    db.flush()
+    inv.amount_paid_cents = int(
+        db.scalar(
+            select(func.coalesce(func.sum(Payment.amount_cents - Payment.refunded_cents), 0)).where(
+                Payment.invoice_id == inv.id, Payment.status.in_(COUNTED)
+            )
+        )
+        or 0
+    )
+    settle_invoice_status(inv, shop_today(get_business(db)))
+
+
 def record_manual_payment(db: Session, user: User, invoice_id: int, data: PaymentIn) -> Payment:
     inv = get_or_404(db, Invoice, invoice_id, "Invoice", lock=True)
     if inv.status == "void":
@@ -643,9 +658,7 @@ def record_manual_payment(db: Session, user: User, invoice_id: int, data: Paymen
         recorded_by_user_id=user.id,
     )
     db.add(payment)
-    inv.amount_paid_cents += data.amount_cents
-    settle_invoice_status(inv, shop_today(get_business(db)))
-    db.flush()
+    recompute_paid(db, inv)
     audit.record(
         db,
         user=user,
@@ -670,11 +683,12 @@ def void_manual_payment(db: Session, user: User, payment_id: int, reason: str) -
         raise Conflict(f"This payment is already {payment.status}.")
     if payment.provider_ref:
         raise Conflict("Online payments are reversed by issuing a refund, not by voiding.")
+    if payment.refunded_cents:
+        raise Conflict("This payment has refunds recorded. Refund the rest instead of voiding it.")
     payment.status = "void"
     payment.voided_at = _now()
     payment.void_reason = reason
-    inv.amount_paid_cents -= payment.amount_cents
-    settle_invoice_status(inv, shop_today(get_business(db)))
+    recompute_paid(db, inv)
     audit.record(
         db,
         user=user,

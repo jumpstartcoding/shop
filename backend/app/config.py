@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     # Public form abuse limit: submissions per IP address per hour.
     public_submissions_per_hour: int = 5
 
+    # Stripe. Leave the secret key empty to run without online payments.
+    stripe_secret_key: SecretStr = SecretStr("")
+    stripe_webhook_secret: SecretStr = SecretStr("")
+    currency: str = "usd"
+    # Smallest online payment accepted, in cents (Stripe's own minimum for USD is 50).
+    min_online_payment_cents: int = 100
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
@@ -52,6 +59,20 @@ class Settings(BaseSettings):
     def cookie_secure(self) -> bool:
         # Browsers drop Secure cookies on plain-http localhost in some cases; production is HTTPS-only.
         return self.environment != "development"
+
+    @property
+    def stripe_configured(self) -> bool:
+        return bool(
+            self.stripe_secret_key.get_secret_value()
+            and self.stripe_webhook_secret.get_secret_value()
+        )
+
+    @property
+    def stripe_mode(self) -> str | None:
+        key = self.stripe_secret_key.get_secret_value()
+        if not key:
+            return None
+        return "live" if key.startswith(("sk_live_", "rk_live_")) else "test"
 
     @property
     def on_lambda(self) -> bool:

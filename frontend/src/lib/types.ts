@@ -228,6 +228,8 @@ export type Payment = {
   notes: string | null;
   voided_at: string | null;
   void_reason: string | null;
+  refunded_cents: number;
+  refunded_at: string | null;
   invoice_number?: string | null;
 };
 
@@ -245,6 +247,7 @@ export type Invoice = Totals & {
   internal_notes: string | null;
   amount_paid_cents: number;
   balance_cents: number;
+  overpaid_cents: number;
   sent_at: string | null;
   paid_at: string | null;
   voided_at: string | null;
@@ -328,7 +331,10 @@ export type Business = {
   logo_key: string | null;
   testimonials: Testimonial[];
   reviews_url: string | null;
+  online_payments_enabled: boolean;
 };
+
+export type PaymentSettings = { configured: boolean; mode: "test" | "live" | null; enabled: boolean; currency: string; min_cents: number };
 
 export type Testimonial = { name: string; text: string };
 

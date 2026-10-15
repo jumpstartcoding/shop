@@ -21,6 +21,9 @@ os.environ["FILES_DIR"] = FILES_DIR
 os.environ["STORAGE_BACKEND"] = "local"
 os.environ["EMAIL_BACKEND"] = "file"
 os.environ["PUBLIC_BASE_URL"] = "https://shop.example"
+# Payments are "configured" in tests, but every Stripe call goes to FakeGateway below.
+os.environ["STRIPE_SECRET_KEY"] = "sk_test_not_a_real_key"
+os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test_secret"
 
 from app.config import get_settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
@@ -30,6 +33,7 @@ PASSWORD = "correct-horse-battery"
 EMAIL = "owner@example.com"
 
 TABLES = [
+    "stripe_events",
     "authorizations",
     "access_tokens",
     "document_versions",
@@ -158,3 +162,37 @@ def customer(client):
 @pytest.fixture
 def vehicle(customer):
     return customer["vehicles"][0]
+
+
+class FakeGateway:
+    """Stands in for Stripe. Records calls; can be told to fail."""
+
+    def __init__(self):
+        self.checkouts = []
+        self.refunds = []
+        self.fail_refunds = False
+
+    def create_checkout(self, **kw):
+        from app.core.payments import CheckoutSession
+
+        self.checkouts.append(kw)
+        n = len(self.checkouts)
+        return CheckoutSession(id=f"cs_test_{n}", url=f"https://checkout.stripe.test/c/{n}")
+
+    def refund(self, **kw):
+        from app.core.payments import PaymentProviderError
+
+        if self.fail_refunds:
+            raise PaymentProviderError("The refund could not be processed. No money was moved.")
+        self.refunds.append(kw)
+        return f"re_test_{len(self.refunds)}"
+
+
+@pytest.fixture(autouse=True)
+def gateway():
+    from app.core.payments import set_gateway
+
+    g = FakeGateway()
+    set_gateway(g)
+    yield g
+    set_gateway(None)

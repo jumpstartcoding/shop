@@ -279,6 +279,8 @@ class PaymentOut(ORMModel):
     notes: str | None
     voided_at: datetime | None
     void_reason: str | None
+    refunded_cents: int
+    refunded_at: datetime | None
     created_at: datetime
     invoice_number: str | None = None
 
@@ -297,6 +299,7 @@ class InvoiceOut(TotalsOut):
     internal_notes: str | None
     amount_paid_cents: int
     balance_cents: int
+    overpaid_cents: int
     sent_at: datetime | None
     viewed_at: datetime | None
     paid_at: datetime | None

@@ -178,3 +178,18 @@ class EmailLog(IdMixin, Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class StripeEvent(Base):
+    """Every Stripe event processed, keyed by Stripe's event id. Inserting here first, in the
+    same transaction as the payment, makes webhook delivery idempotent: a retried or replayed
+    event finds its id already present and changes nothing."""
+
+    __tablename__ = "stripe_events"
+
+    event_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    type: Mapped[str] = mapped_column(String(100), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(60), nullable=False, default="processed")
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

@@ -41,8 +41,10 @@ IN_SHOP = (
 def _revenue_since(db: Session, since: datetime) -> int:
     return int(
         db.scalar(
-            select(func.coalesce(func.sum(Payment.amount_cents), 0)).where(
-                Payment.status == "succeeded", Payment.paid_at >= since
+            # Net of refunds. A refund is counted against the period of the original payment;
+            # this is a working view of cash in, not an accounting ledger.
+            select(func.coalesce(func.sum(Payment.amount_cents - Payment.refunded_cents), 0)).where(
+                Payment.status.in_(("succeeded", "refunded")), Payment.paid_at >= since
             )
         )
         or 0
@@ -192,6 +194,46 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(require_user)):
                 "count": len(overdue),
                 "message": f"{len(overdue)} overdue invoice{'s' if len(overdue) != 1 else ''}.",
             }
+        )
+    online_today = list(
+        db.scalars(
+            select(Payment).where(
+                Payment.method == "online",
+                Payment.status.in_(("succeeded", "refunded")),
+                Payment.paid_at >= now - timedelta(hours=24),
+            )
+        )
+    )
+    if online_today:
+        total = sum(p.amount_cents for p in online_today)
+        notifications.append(
+            {
+                "kind": "online_payments",
+                "count": len(online_today),
+                "message": f"{len(online_today)} online payment{'s' if len(online_today) != 1 else ''}"
+                f" received in the last day, ${total / 100:,.2f} total.",
+            }
+        )
+    needs_refund = [
+        i
+        for i in db.scalars(
+            select(Invoice).where(
+                Invoice.amount_paid_cents > 0,
+                (Invoice.amount_paid_cents > Invoice.total_cents) | (Invoice.status == "void"),
+            )
+        )
+        if i.overpaid_cents
+    ]
+    for i in needs_refund:
+        notifications.insert(
+            0,
+            {
+                "kind": "needs_refund",
+                "count": 1,
+                "entity_id": i.id,
+                "message": f"Invoice {i.number} is overpaid by ${i.overpaid_cents / 100:,.2f}. "
+                "Refund the difference.",
+            },
         )
 
     return {

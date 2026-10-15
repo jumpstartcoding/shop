@@ -13,7 +13,7 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 | 1a | Backend core: auth, customers, vehicles, appointments, work orders, estimates, invoices, manual payments, settings, services catalog, dashboard, search, audit log | **Done** (54 tests passing) |
 | 1b | Mobile-first admin UI (React) | **Done** |
 | 2 | Customer links, PDFs, email, digital signatures, public website and booking | **Done** (81 backend tests) |
-| 3 | Stripe online payments, receipts, refunds | Planned |
+| 3 | Stripe online payments, receipts, refunds | **Done** (109 backend tests) |
 | 4 | Inspections, photos, service history | Planned |
 | 5 | Parts, vendors, expenses, reminders, reports, CSV export, VIN decode | Planned |
 | 6 | AWS deployment template, backups, security review, final docs | Planned |
@@ -25,7 +25,7 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 - **Work orders:** sequential numbers (`WO-2026-0001`), labor/part/fee/discount lines, default labor rate, part price from cost + markup, per-line taxability, status board columns, completion checklist (override is allowed but audited), mileage tracking.
 - **Estimates:** created from scratch or from a work order; marking sent locks it; record approval/decline given in person or by phone/email/text; revising creates a new version and drops the old approval; approved estimates convert into work.
 - **Invoices:** generated from a work order as a snapshot, or standalone; numbers like `INV-2026-0001`; charges freeze once money is received; void with a reason; overdue status from the due date.
-- **Payments:** cash, check, card terminal, other. Overpayment is refused; voiding a payment restores the balance. Online payments arrive with Stripe in Phase 3.
+- **Payments:** cash, check, card terminal, other. Overpayment is refused; voiding a payment entered by mistake restores the balance. Online card payments are covered under Phase 3.
 - **Dashboard:** today's and upcoming appointments, requests to review, open work orders, vehicles in the shop, estimates awaiting the customer, unpaid and recently paid invoices, revenue today/week/month/year, outstanding balance, and a short list of things needing attention.
 - **Audit log:** every change to customers, documents, payments, and settings, with who, when, and what changed. Internal note contents are not copied into the log.
 
@@ -51,7 +51,16 @@ A mobile-first admin app at `/admin`, built for a phone in one hand in the bay a
 - **Email** for estimates, authorizations, invoices, receipts (PDF attached), appointment confirmations, and "your car is ready". Every send is logged; a failed email never undoes the send, and the link is always shown so it can be texted instead. Templates are editable. The shop can be emailed when requests, questions, and approvals come in.
 - **Today screen** shows messages from customers; the calendar turns booking requests into customers with the form prefilled.
 
-What it does **not** do yet: take card payments online (Phase 3), inspections and photos (Phase 4).
+### What Phase 3 adds
+- **Pay online:** invoice links show **Pay with card** (full or partial balance) when Stripe is connected. Customers pay on Stripe's hosted page, including Apple Pay and Google Pay where supported. The shop never sees card numbers.
+- **Webhook-confirmed:** only Stripe's signed webhook records an online payment; it's idempotent, row-locked, and rolls back cleanly so Stripe can retry. The customer's page waits for confirmation and then shows the receipt.
+- **Receipts** emailed automatically with a PDF after online payments.
+- **Refunds** (partial or full) from the invoice: through Stripe for online payments, recorded for cash/check/terminal. Refunds made in the Stripe dashboard sync back. Revenue on the Today screen is net of refunds.
+- **Overpayment and disputes** are flagged on the Today screen and emailed to the shop.
+
+Setup, test cards, and the webhook events to register are in [docs/PAYMENTS.md](docs/PAYMENTS.md).
+
+What it does **not** do yet: inspections and photos (Phase 4).
 
 ### Electronic signatures: what this is and isn't
 The signing flow is designed as a strong electronic authorization record: who signed, what exact version they saw, the statement they agreed to, when, from which IP address and device, and a fingerprint of the document. It is **not legal advice and makes no claim about enforceability in any particular state.** The shop is responsible for wording the authorization statement and terms (Settings) appropriately for its jurisdiction, and may want a local attorney to review them.

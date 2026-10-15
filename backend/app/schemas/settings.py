@@ -81,6 +81,7 @@ class BusinessUpdate(BaseModel):
     terms_text: ShortText(5000) = None
     notify_by_email: bool | None = None
     testimonials: list[Testimonial] | None = Field(default=None, max_length=12)
+    online_payments_enabled: bool | None = None
     reviews_url: ShortText(300) = None
 
     @field_validator("hours")
@@ -137,6 +138,7 @@ class BusinessOut(ORMModel):
     logo_key: str | None
     testimonials: list
     reviews_url: str | None
+    online_payments_enabled: bool
 
 
 class PublicBusinessOut(ORMModel):

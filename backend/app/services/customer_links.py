@@ -14,6 +14,7 @@ from app.models import AccessToken, Customer, DocumentVersion, Estimate, Inquiry
 from app.schemas.public import QuestionIn, RespondIn
 from app.services import documents, notify
 from app.services.business import get_business
+from app.services.payments import online_payments_available
 from app.services.workflow import apply_estimate_decision
 
 RESPONDABLE = {"sent", "viewed"}
@@ -48,7 +49,8 @@ def view(db: Session, token: str) -> dict:
             "state": {
                 "status": inv.status,
                 "balance_cents": inv.balance_cents,
-                "can_pay_online": False,
+                "can_pay_online": inv.balance_cents > 0 and online_payments_available(db),
+                "min_online_cents": min(get_settings().min_online_payment_cents, inv.balance_cents),
             },
             "receipts": [
                 {"id": p.id, "amount_cents": p.amount_cents, "paid_at": p.paid_at}
