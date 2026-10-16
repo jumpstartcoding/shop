@@ -23,7 +23,7 @@ jobs:
     needs: checks
     # Skipped (not failed) until the GitHub variables from DEPLOYMENT.md exist.
     if: vars.AWS_DEPLOY_ROLE_ARN != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       id-token: write # GitHub OIDC sign-in to AWS; no AWS keys are stored in GitHub
       contents: read
@@ -33,9 +33,9 @@ jobs:
       BOOTSTRAP_STACK: ${{ vars.BOOTSTRAP_STACK_NAME || 'shop-bootstrap' }}
       REPOSITORY: ${{ vars.AWS_ECR_REPOSITORY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -59,7 +59,7 @@ jobs:
       # Migrations run before new code goes live. They must stay backward compatible
       # (add columns/tables; remove things only in a later release), because the old
       # code keeps serving requests until the stack update finishes.
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
       - name: Migrate database
@@ -134,7 +134,7 @@ jobs:
             echo "function=$(out ApiFunctionName)"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
