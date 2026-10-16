@@ -1,9 +1,15 @@
 name: CI
 
+# Runs on pull requests and non-main branches. On main, the Deploy workflow calls this
+# first and only deploys if every job passes.
 on:
   push:
-    branches: [main]
+    branches-ignore: [main]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   backend:
@@ -49,3 +55,54 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  # Builds the production Lambda image and runs it under AWS's Lambda runtime emulator:
+  # migrations, go-live checks (database, storage, PDF fonts), login, and a PDF download,
+  # all through real Lambda event payloads.
+  lambda-image:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: shop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t shop-api:ci backend
+      - name: Start image under the Lambda runtime emulator
+        run: |
+          mkdir -p "$RUNNER_TEMP/rie"
+          curl -fsSL -o "$RUNNER_TEMP/rie/aws-lambda-rie" \
+            https://github.com/aws/aws-lambda-runtime-interface-emulator/releases/latest/download/aws-lambda-rie
+          chmod +x "$RUNNER_TEMP/rie/aws-lambda-rie"
+          docker run -d --name api --network host --read-only --tmpfs /tmp \
+            -v "$RUNNER_TEMP/rie:/rie:ro" --entrypoint /rie/aws-lambda-rie \
+            -e DATABASE_URL=postgresql://postgres@127.0.0.1:5432/shop \
+            -e ENVIRONMENT=test -e ORIGIN_SECRET=cf-test-secret \
+            -e PUBLIC_BASE_URL=https://shop.example -e STORAGE_BACKEND=local \
+            -e FILES_DIR=/tmp/files -e EMAIL_BACKEND=disabled \
+            -e AWS_LAMBDA_FUNCTION_NAME=shop-api -e AWS_REGION=us-east-1 \
+            shop-api:ci python -m awslambdaric app.lambda_handler.handler
+          sleep 3
+      - name: Smoke test
+        run: python3 infra/scripts/lambda_smoke.py http://127.0.0.1:8080 cf-test-secret
+      - name: Container logs
+        if: always()
+        run: docker logs api 2>&1 | tail -100
+      - name: Image size
+        run: docker image ls shop-api:ci
+
+  templates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uvx cfn-lint==1.57.1 infra/template.yaml infra/bootstrap.yaml
+      - name: Backup and restore scripts
+        run: bash -n infra/scripts/backup-dump.sh && bash -n infra/scripts/restore.sh

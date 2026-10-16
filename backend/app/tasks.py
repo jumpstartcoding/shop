@@ -3,13 +3,14 @@
 uv run python -m app.tasks migrate
 uv run python -m app.tasks create-admin --email you@shop.com --name "Your Name"
 uv run python -m app.tasks nightly
+uv run python -m app.tasks doctor         # go-live checks
+uv run python -m app.tasks setup-shop     # placeholder shop profile + services list
 uv run python -m app.tasks seed-demo      # development only
 """
 
 import argparse
 import getpass
 import os
-from pathlib import Path
 
 import structlog
 from sqlalchemy import func, select
@@ -20,21 +21,34 @@ from app.db import get_engine, reset_engine
 from app.models import Invoice, User
 
 log = structlog.get_logger()
-BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
 def migrate() -> dict:
     from alembic import command
-    from alembic.config import Config
 
-    cfg = Config(str(BACKEND_DIR / "alembic.ini"))
-    cfg.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
-    command.upgrade(cfg, "head")
+    from app.doctor import alembic_config
+
+    command.upgrade(alembic_config(), "head")
     return {"ok": True, "task": "migrate"}
 
 
+MIN_PASSWORD = 12
+
+
 def create_admin(email: str, name: str, password: str) -> dict:
+    from email_validator import EmailNotValidError, validate_email
     from sqlalchemy.orm import Session
+
+    name = name.strip()
+    try:
+        # Same rules as the login form, so the account can actually sign in.
+        email = validate_email(email.strip(), check_deliverability=False).normalized
+    except EmailNotValidError as exc:
+        return {"ok": False, "error": f"Email address: {exc}"}
+    if not name:
+        return {"ok": False, "error": "Give a name."}
+    if len(password) < MIN_PASSWORD:
+        return {"ok": False, "error": f"Use a password of at least {MIN_PASSWORD} characters."}
 
     with Session(get_engine()) as db:
         if db.scalar(select(User).where(func.lower(User.email) == email.lower())):
@@ -75,6 +89,14 @@ def run(event: dict) -> dict:
         return create_admin(event["email"], event["name"], event["password"])
     if task == "nightly":
         return nightly()
+    if task == "doctor":
+        from app.doctor import run_checks
+
+        return run_checks()
+    if task == "setup_shop":
+        from app.seed import setup_shop
+
+        return setup_shop()
     return {"ok": False, "error": f"unknown task {task!r}"}
 
 
@@ -84,6 +106,8 @@ def main() -> None:
     sub.add_parser("migrate")
     sub.add_parser("nightly")
     sub.add_parser("seed-demo")
+    sub.add_parser("doctor")
+    sub.add_parser("setup-shop")
     ca = sub.add_parser("create-admin")
     ca.add_argument("--email", required=True)
     ca.add_argument("--name", required=True)
@@ -96,6 +120,16 @@ def main() -> None:
     elif args.cmd == "create-admin":
         password = os.environ.get("ADMIN_PASSWORD") or getpass.getpass("Password (12+ chars): ")
         print(create_admin(args.email, args.name, password))
+    elif args.cmd == "doctor":
+        from app.doctor import as_markdown, run_checks
+
+        report = run_checks()
+        print(as_markdown(report))
+        raise SystemExit(0 if report["ok"] else 1)
+    elif args.cmd == "setup-shop":
+        from app.seed import setup_shop
+
+        print(setup_shop())
     elif args.cmd == "seed-demo":
         if get_settings().is_production:
             raise SystemExit("Refusing to load demo data into production.")

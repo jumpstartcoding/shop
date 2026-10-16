@@ -1,7 +1,9 @@
 """Database engine and session handling.
 
-On Lambda, each container keeps at most one connection open and connects through Neon's
-pooled endpoint; NullPool avoids holding idle connections across frozen containers.
+On Lambda, NullPool opens a connection per request and closes it afterwards, so frozen
+containers never hold idle connections. Either Neon endpoint works: the direct one (simplest;
+a handful of Lambda containers is far below Neon's connection limit) or the "-pooler" one
+(PgBouncer in transaction mode, where server-side prepared statements must be turned off).
 """
 
 from collections.abc import Iterator
@@ -21,7 +23,7 @@ def get_engine() -> Engine:
     global _engine, _SessionLocal
     if _engine is None:
         settings = get_settings()
-        kwargs: dict = {"future": True}
+        kwargs: dict = {"future": True, "connect_args": connect_args(settings.database_url)}
         if settings.on_lambda:
             kwargs["poolclass"] = NullPool
         else:
@@ -29,6 +31,14 @@ def get_engine() -> Engine:
         _engine = create_engine(settings.database_url, **kwargs)
         _SessionLocal = sessionmaker(bind=_engine, autoflush=False, expire_on_commit=False)
     return _engine
+
+
+def connect_args(url: str) -> dict:
+    # Neon's compute may be waking from scale-to-zero; give it a few seconds.
+    args: dict = {"connect_timeout": 10}
+    if "-pooler." in url:
+        args["prepare_threshold"] = None
+    return args
 
 
 def reset_engine() -> None:

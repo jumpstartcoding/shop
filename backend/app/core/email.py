@@ -10,7 +10,7 @@ tell the mechanic ("Invoice was saved but the email couldn't be sent").
 
 from dataclasses import dataclass, field
 from email.message import EmailMessage
-from email.utils import make_msgid
+from email.utils import formataddr, make_msgid, parseaddr
 from pathlib import Path
 
 from app.config import get_settings
@@ -33,6 +33,8 @@ class OutgoingEmail:
     subject: str
     text: str
     reply_to: str | None = None
+    # Display name for the From header (the shop's name) when EMAIL_FROM is a bare address.
+    from_name: str | None = None
     attachments: list[Attachment] = field(default_factory=list)
 
 
@@ -51,12 +53,20 @@ def _build(msg: OutgoingEmail, sender: str) -> EmailMessage:
     return m
 
 
+def sender_for(email_from: str, from_name: str | None) -> str:
+    name, address = parseaddr(email_from)
+    if name or not from_name or not address:
+        return email_from
+    clean = " ".join(from_name.replace('"', "").split())[:70]
+    return formataddr((clean, address))
+
+
 def send_email(msg: OutgoingEmail) -> str | None:
     """Send and return a provider message id. Raises EmailError on failure."""
     s = get_settings()
     if "\n" in msg.to or "\r" in msg.to or "\n" in msg.subject or "\r" in msg.subject:
         raise EmailError("Invalid address or subject.")
-    built = _build(msg, s.email_from)
+    built = _build(msg, sender_for(s.email_from, msg.from_name))
     if s.email_backend == "disabled":
         return None
     if s.email_backend == "file":
@@ -71,7 +81,7 @@ def send_email(msg: OutgoingEmail) -> str | None:
 
             client = boto3.client("sesv2", region_name=s.aws_region)
             resp = client.send_email(
-                FromEmailAddress=s.email_from,
+                FromEmailAddress=str(built["From"]),
                 Destination={"ToAddresses": [msg.to]},
                 Content={"Raw": {"Data": built.as_bytes()}},
             )

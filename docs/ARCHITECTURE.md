@@ -31,7 +31,7 @@ Why each piece:
 | Piece | Choice | Why |
 |---|---|---|
 | Frontend | React + TypeScript + Vite + Tailwind, static build on S3 | No server to run. One app with three areas: public site, `/admin`, and customer link pages (`/e/:token`, `/i/:token`, …). |
-| API | FastAPI in a **container-image Lambda**, behind a Lambda Function URL | Pays per request; free tier covers a one-person shop. Container image because WeasyPrint (PDFs) needs system libraries (Pango/Cairo). |
+| API | FastAPI in a **container-image Lambda** (x86_64, Debian + Lambda runtime client), behind a Lambda Function URL | Pays per request; free tier covers a one-person shop. Container image because WeasyPrint (PDFs) needs Pango and HarfBuzz; Debian ships current builds. x86_64 so GitHub's standard runners build it natively (arm64 would save ~20% only beyond the free tier). |
 | Edge | CloudFront serving both `/` and `/api/*` | Same origin for the SPA and the API, so cookies are first-party, no CORS, one TLS certificate. |
 | Database | **Neon Postgres** (free plan to start) | RDS is the only AWS-native Postgres and it carries a fixed monthly instance cost; Neon scales to zero and charges for use. Postgres either way, so moving later is a `pg_dump`/`pg_restore`. |
 | Files | S3, uploads via presigned URLs, images compressed in the browser before upload | Lambda never proxies large uploads; photos stay small. |
@@ -39,13 +39,13 @@ Why each piece:
 | Payments | Stripe Checkout (hosted) + webhooks | Card data never touches this system. Apple Pay / Google Pay come with Checkout. |
 | PDFs | WeasyPrint (HTML/CSS → PDF) on the server, Barlow fonts bundled (SIL OFL) | Real print layout, consistent branding, no browser screenshots. The Lambda image installs Pango/HarfBuzz. |
 | Scheduled jobs | EventBridge Scheduler → same Lambda with a task payload | Overdue invoices, maintenance reminders. No queues, no workers. |
-| Secrets | SSM Parameter Store (standard tier) | Free, unlike Secrets Manager per-secret pricing. |
-| IaC | AWS SAM template | One file describes the Lambda, bucket, CloudFront, scheduler. |
+| Secrets | SSM Parameter Store (standard tier) | Free, unlike Secrets Manager per-secret pricing. Loaded once per cold start (`SSM_PREFIX`), so secrets never appear in the template or the Lambda console. |
+| IaC | Plain CloudFormation (`infra/template.yaml`) + a one-time bootstrap stack | One file describes Lambda, buckets, CloudFront, DNS, SES, alarms, scheduler. Deployed by GitHub Actions with `aws cloudformation deploy`, so no SAM CLI or Docker is needed on the owner's computer. |
 
 Deliberately absent: Redis, queues, Kubernetes, Elasticsearch, a separate auth service, microservices. Search uses Postgres (`pg_trgm` indexes). Rate limiting uses Postgres. Background work runs inside the request when it's quick (send one email) or on the nightly schedule.
 
 ### Lambda-specific notes
-- **DB connections:** SQLAlchemy uses `NullPool` on Lambda and connects through Neon's pooled (PgBouncer) endpoint, so cold starts don't exhaust connections.
+- **DB connections:** SQLAlchemy uses `NullPool` on Lambda (one short-lived connection per request, none held by frozen containers). Neon's direct endpoint is the default; the pooled `-pooler` endpoint also works (server-side prepared statements are turned off for it automatically).
 - **Cold starts:** expect ~1–2 s on the first request after idle. The admin app shows a loading state; nothing customer-facing depends on sub-second first loads. Provisioned concurrency would remove this but costs money every month, so it is off.
 - **Abuse/cost guard:** reserved concurrency is capped (default 10) so a traffic spike can't run up a bill.
 - **Origin protection:** the Function URL is public by AWS design, so CloudFront injects a secret header and the app rejects requests without it. (CloudFront OAC for Lambda URLs requires clients to hash POST bodies, which breaks ordinary browser forms and Stripe webhooks, so the header approach is used instead.)
@@ -114,13 +114,14 @@ Rounding happens once per line and once for tax, in a single pure function (`app
 ## 3. Folder structure
 
 ```
-mechanic-shop/
+shop/
 ├── README.md                 setup, local dev, cost estimate, feature list
 ├── docs/
 │   ├── ARCHITECTURE.md       this file
-│   ├── DEPLOYMENT.md         (Phase 6) AWS + Neon + Stripe + SES setup
-│   ├── SECURITY.md           (Phase 6) checklist and threat notes
-│   └── BACKUPS.md            (Phase 6) frequency, retention, restore drill
+│   ├── DEPLOYMENT.md         going live: AWS + Neon + SES + Stripe, step by step
+│   ├── SECURITY.md           §52 review, owner checklist, known limits
+│   ├── BACKUPS.md            frequency, retention, restore procedure
+│   └── PAYMENTS.md           Stripe flow and setup
 ├── backend/
 │   ├── pyproject.toml        uv-managed
 │   ├── alembic.ini
@@ -135,11 +136,14 @@ mechanic-shop/
 │   │   ├── schemas/          Pydantic request/response models
 │   │   ├── routers/          one module per resource
 │   │   └── services/         workflows that span tables (convert estimate, invoice from WO, record payment)
-│   └── tests/
-├── frontend/                 (Phase 1b) React app
+│   ├── tests/
+│   └── Dockerfile            Lambda container image
+├── frontend/                 React app (public site, customer links, admin)
 ├── infra/
-│   └── template.yaml         (Phase 6) AWS SAM
-└── .github/workflows/        CI tests; nightly DB backup
+│   ├── bootstrap.yaml        one-time: GitHub OIDC, deploy roles, ECR, budget
+│   ├── template.yaml         the app stack (CloudFormation)
+│   └── scripts/              backup dump, restore, Lambda smoke test
+└── .github/workflows/        ci.yml, deploy.yml (push to main), backup.yml (nightly)
 ```
 
 ---
@@ -184,11 +188,12 @@ The app records a strong electronic authorization trail. It does not claim any p
 
 ---
 
-## 7. Deployment (Phase 6 docs; template built alongside)
+## 7. Deployment (Phase 6)
 
-- `sam build && sam deploy` creates: ECR image, Lambda (arm64, 1024 MB, 30 s timeout, reserved concurrency 10), Function URL, private S3 buckets (site + files), CloudFront distribution with two behaviors, EventBridge nightly schedule, IAM role scoped to its own bucket and SES identity.
-- Frontend: `npm run build` → `aws s3 sync` → CloudFront invalidation (GitHub Actions).
-- Migrations: `aws lambda invoke --payload '{"task":"migrate"}'` as a deploy step.
+- **Bootstrap stack** (once, from CloudShell): GitHub OIDC provider, a deploy role that only `main` of this repo can assume, a CloudFormation execution role, the ECR repository (immutable tags, scan on push, keep 5), and an AWS budget alert.
+- **App stack** creates: Lambda (x86_64, 1024 MB, 30 s timeout, optional reserved concurrency) with its own log group (30-day retention), Function URL, private encrypted S3 buckets (site; files and backups versioned and retained if the stack is deleted), CloudFront with two behaviors and two CloudFront Functions (SPA routing; trusted `X-Viewer-Ip`), security response headers with a strict CSP, ACM certificate + Route 53 records when a hosted zone is given, SES domain identity with DKIM, EventBridge nightly schedule, error/crash/throttle alarms to email, a backup role that can only write backups, and a policy granting the deploy role site upload, cache invalidation, and task invocation.
+- **Deploy workflow** on push to `main`: CI (tests, builds, image smoke test under the Lambda runtime emulator, template lint) → migrations from the runner → image build and push → `aws cloudformation deploy` → website sync (hashed assets cached a year, `index.html` revalidated) → go-live checks on the job summary.
+- **Order matters:** migrations run before new code serves traffic, so they must be backward compatible (expand, then contract in a later release).
 - DNS: Route 53 hosted zone (or keep the registrar's DNS and add CNAMEs to skip the hosted-zone fee). ACM certificate in us-east-1 for CloudFront.
 - SES starts in sandbox mode; production access must be requested from AWS before customers can receive email (documented step).
 
@@ -216,13 +221,13 @@ Assumes one shop: a few hundred customers, ~100 work orders/month, a few thousan
 | Lambda + Function URL | $0 | Well inside the always-free tier. |
 | CloudFront | $0 | Inside the always-free tier for this traffic. |
 | S3 (site + photos + backups) | $0.10–$0.50 | A few GB at standard rates; photos compressed client-side. |
-| ECR image storage | ~$0.05 | ~300–500 MB image. |
+| ECR image storage | ~$0.10–$0.25 | Last 5 images kept; shared layers stored once. |
 | Neon Postgres | $0 | Free plan: 1 GB per project and 100 CU-hours/month, scale to zero. Moves to usage-based Launch if outgrown. |
 | SES email | ~$0.03 | $0.10 per 1,000 emails. |
-| EventBridge, SSM | $0 | Free tiers. |
+| EventBridge, SSM, CloudFront Functions, CloudWatch logs + alarms, SNS email | $0 | Free tiers (2M function invocations, 5 GB logs, 10 alarms). |
 | Route 53 hosted zone | $0.50 | Optional if the registrar's DNS is used. |
 | Backups (GitHub Actions + S3) | ~$0.01 | Free Actions minutes; tiny dump files. |
-| **Infrastructure subtotal** | **≈ $0.60–$1.10/month** | |
+| **Infrastructure subtotal** | **≈ $0.75–$1.30/month** | |
 | Domain | ~$1–1.25/month | ~$12–15/year, paid annually. |
 | **Stripe** | 2.9% + 30¢ per online card payment | On $10,000/month of online card payments that is roughly $290 + 30¢ × number of payments. Non-US cards add 1.5%. Cash/check recorded manually cost nothing. Disputes carry a $15 fee. |
 
@@ -242,7 +247,7 @@ Each phase ships working, tested functionality. Nothing is stubbed to look finis
 | **3** Online payments (done) | Stripe Checkout, webhook handling (heavily tested), receipts, refunds. |
 | **4** Inspections and photos | Digital inspection, presigned uploads with client-side compression, inspection report PDF, service history, QC checklist enforcement. |
 | **5** Shop admin | Parts, vendors, expenses, maintenance reminders + nightly job, reports with date filters, CSV export, VIN decode via the free NHTSA vPIC API (optional, app works without it). |
-| **6** Production hardening | SAM template, CI, backup workflow, security review against §52, DEPLOYMENT/SECURITY/BACKUPS docs, README completion, demo data. |
+| **6** Production hardening (done, ahead of 4 and 5) | CloudFormation templates, deploy and backup workflows, Lambda image + emulator smoke test, go-live checks, security review against §52, DEPLOYMENT/SECURITY/BACKUPS docs. |
 
 ## 11. Not in V1 (by design)
 Multi-location, employee payroll, accounting, warehouse inventory, CRM campaigns, fleet management, SSO, AI diagnostics, supplier APIs, SMS (architecture leaves room: reminders and templates are channel-agnostic), customer login accounts (links cover V1).

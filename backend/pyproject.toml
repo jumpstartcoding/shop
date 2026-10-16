@@ -20,6 +20,11 @@ dependencies = [
     "stripe>=16.0.0",
 ]
 
+[project.optional-dependencies]
+lambda = [
+    "awslambdaric==4.1.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",

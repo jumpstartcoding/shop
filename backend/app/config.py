@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     # Email. "file" writes .eml files to <files_dir>/outbox for local development;
     # "ses" sends through Amazon SES; "disabled" records the attempt and sends nothing.
     email_backend: str = "file"
-    email_from: str = "Shop <no-reply@example.com>"
+    # A bare address gets the shop name from Settings as its display name.
+    email_from: str = "no-reply@example.com"
 
     # Customer links
     estimate_link_days: int = 45
@@ -50,6 +51,15 @@ class Settings(BaseSettings):
     currency: str = "usd"
     # Smallest online payment accepted, in cents (Stripe's own minimum for USD is 50).
     min_online_payment_cents: int = 100
+
+    @field_validator("database_url")
+    @classmethod
+    def _psycopg_driver(cls, v: str) -> str:
+        # Neon and most hosts hand out postgresql:// (or postgres://) URLs; use psycopg 3.
+        for prefix in ("postgresql://", "postgres://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix) :]
+        return v
 
     @property
     def is_production(self) -> bool:

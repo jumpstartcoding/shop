@@ -151,6 +151,7 @@ def send_templated(
                 subject=subject,
                 text=fill(body_t, full),
                 reply_to=business.email,
+                from_name=business.name,
                 attachments=attachments or [],
             )
         )

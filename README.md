@@ -6,7 +6,9 @@ Website and shop-management system for a one-person auto repair shop: customers,
 
 ## Status
 
-Built in phases; each phase ships working, tested functionality. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan and the reasoning behind every choice.
+Built in phases; each phase ships working, tested functionality. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan and the reasoning behind every choice. Production hardening (Phase 6) was done ahead of Phases 4 and 5 so the shop can go live on what exists now; the remaining phases add features without changing how it's deployed.
+
+**To put it online, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).**
 
 | Phase | Scope | State |
 |---|---|---|
@@ -14,9 +16,9 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 | 1b | Mobile-first admin UI (React) | **Done** |
 | 2 | Customer links, PDFs, email, digital signatures, public website and booking | **Done** (81 backend tests) |
 | 3 | Stripe online payments, receipts, refunds | **Done** (109 backend tests) |
+| 6 | Production: AWS templates, deploy and backup pipelines, go-live checks, security review | **Done** (128 backend tests) |
 | 4 | Inspections, photos, service history | Planned |
 | 5 | Parts, vendors, expenses, reminders, reports, CSV export, VIN decode | Planned |
-| 6 | AWS deployment template, backups, security review, final docs | Planned |
 
 ### What Phase 1a does today
 - **Sign-in:** one owner account, Argon2id passwords, server-side sessions in HttpOnly cookies, CSRF tokens, temporary lockout after repeated failures.
@@ -60,7 +62,15 @@ A mobile-first admin app at `/admin`, built for a phone in one hand in the bay a
 
 Setup, test cards, and the webhook events to register are in [docs/PAYMENTS.md](docs/PAYMENTS.md).
 
-What it does **not** do yet: inspections and photos (Phase 4).
+### What Phase 6 adds
+- **One-push deploys:** every push to `main` runs all tests, builds the API as a Lambda container image, smoke-tests that image under AWS's Lambda emulator, applies database migrations, updates the AWS stack, uploads the website, and runs the go-live checks. GitHub signs in to AWS with short-lived OIDC tokens, so no AWS keys are stored anywhere.
+- **AWS stack** (`infra/template.yaml`, plain CloudFormation): CloudFront serving the site from S3 and the API from Lambda, HTTPS certificate and DNS when the domain is in Route 53, SES email domain with DKIM, private encrypted buckets for files and backups, a nightly upkeep schedule, error alarms by email, and security headers including a strict Content-Security-Policy. A one-time `infra/bootstrap.yaml` sets up GitHub access, the image repository, and an AWS budget alert.
+- **Go-live checks** (`doctor`): database, schema version, file storage, PDF fonts, public address, CloudFront-only access, owner login, SES verification and sandbox status, the Stripe webhook's URL and events, and leftover placeholder shop details. Results appear on each deploy's summary page.
+- **Nightly backups** to S3 with 35-day daily and 400-day monthly retention, each dump verified before upload, written by a role that can't read or delete backups. Restore script and rehearsed procedure in [docs/BACKUPS.md](docs/BACKUPS.md).
+- **Security review** against spec §52, with whole-API tests (every private route needs sign-in and CSRF, the exact set of public routes is pinned) and one real fix: the visitor IP used for rate limits and signature records can no longer be spoofed. Details in [docs/SECURITY.md](docs/SECURITY.md).
+- Secrets in AWS Parameter Store; Neon connection strings work as pasted; customer emails show the shop's name as the sender.
+
+What it does **not** do yet: inspections and photos (Phase 4); parts, expenses, reports, and CSV export (Phase 5).
 
 ### Electronic signatures: what this is and isn't
 The signing flow is designed as a strong electronic authorization record: who signed, what exact version they saw, the statement they agreed to, when, from which IP address and device, and a fingerprint of the document. It is **not legal advice and makes no claim about enforceability in any particular state.** The shop is responsible for wording the authorization statement and terms (Settings) appropriately for its jurisdiction, and may want a local attorney to review them.
@@ -89,7 +99,9 @@ In a second terminal, start the admin app (Node 20+):
 cd frontend
 npm install
 npm run dev            # http://localhost:5173/admin, proxies /api to :8000
-``` Demo sign-in: `demo@example.com` / `demo-password-123` (created only by `seed-demo`, which refuses to run in production).
+```
+
+Demo sign-in: `demo@example.com` / `demo-password-123` (created only by `seed-demo`, which refuses to run in production).
 
 To create the real owner account instead:
 
@@ -105,7 +117,9 @@ uv run pytest                      # uses TEST_DATABASE_URL; the test database i
 uv run ruff check app tests migrations
 ```
 
-Tests run against real Postgres, not SQLite, so constraints, row locking, and numbering behave as they will in production. Covered so far: pricing and tax math, authentication and CSRF, customer/vehicle rules, appointments, the estimate → work order → invoice → payment workflow, overpayment and edit-after-payment protection, concurrent invoice numbering, settings validation, and public endpoints not leaking internal settings.
+Tests run against real Postgres, not SQLite, so constraints, row locking, and numbering behave as they will in production. Covered: pricing and tax math, authentication and CSRF, customer/vehicle rules, appointments, the estimate → work order → invoice → payment workflow, overpayment and edit-after-payment protection, concurrent invoice numbering, customer links, signatures and document versions, PDFs, email, Stripe webhooks and refunds, go-live checks, the Lambda entry point, and API-wide access rules.
+
+Go-live checks against your local setup: `uv run python -m app.tasks doctor`.
 
 ## Project layout
 
@@ -117,15 +131,25 @@ backend/
     schemas/     request/response validation
     routers/     REST endpoints under /api
     services/    workflows spanning several tables
-    tasks.py     migrate, create-admin, nightly, seed-demo
+    doctor.py    go-live checks
+    tasks.py     migrate, create-admin, setup-shop, doctor, nightly, seed-demo
   migrations/    Alembic
   tests/
+  Dockerfile     Lambda container image
 frontend/
   src/
     components/  layout, line-item editor, pickers, shared UI
     pages/       one file per screen
     lib/         API client (cookies + CSRF), formatting, types
-docs/ARCHITECTURE.md
+infra/
+  bootstrap.yaml one-time AWS setup (GitHub access, image repository, budget)
+  template.yaml  the app's AWS stack
+  scripts/       backup, restore, Lambda smoke test
+.github/workflows/
+  ci.yml         tests, builds, image smoke test, template lint
+  deploy.yml     push to main → deploy
+  backup.yml     nightly database backup
+docs/            ARCHITECTURE, DEPLOYMENT, BACKUPS, SECURITY, PAYMENTS
 ```
 
 ## Production cost estimate
@@ -134,14 +158,14 @@ Assumes one shop: a few hundred customers, about 100 work orders a month, a few 
 
 | Item | Expected monthly cost |
 |---|---|
-| Hosting: AWS Lambda + Function URL + CloudFront | $0 (inside always-free tiers) |
+| Hosting: AWS Lambda + CloudFront (incl. Functions), logs, alarms, nightly schedule | $0 (inside always-free tiers) |
 | Database: Neon Postgres free plan | $0 (1 GB storage, 100 compute-hours, scales to zero) |
 | Storage: S3 for site, photos, PDFs, backups | $0.10–$0.50 |
-| Container image (ECR) | ~$0.05 |
+| Container images (ECR, last 5 kept) | $0.10–$0.25 |
 | Email: Amazon SES | ~$0.03 ($0.10 per 1,000 emails) |
 | Backups: nightly dump via GitHub Actions to S3 | ~$0.01 |
 | DNS: Route 53 hosted zone (optional) | $0.50 |
-| **Infrastructure total** | **about $0.60–$1.10** |
+| **Infrastructure total** | **about $0.75–$1.30** |
 | Domain | about $12–15 per year |
 | **Payment processing (Stripe)** | **2.9% + 30¢ per online card payment**; non-US cards add 1.5%; $15 per dispute |
 

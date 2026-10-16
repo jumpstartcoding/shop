@@ -22,10 +22,17 @@ _TOUCH_INTERVAL = timedelta(minutes=10)
 
 
 def client_ip(request: Request) -> str | None:
-    # CloudFront sets X-Forwarded-For; the first entry is the viewer.
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()[:64]
+    """The visitor's IP address, used for rate limits and the signature audit trail.
+
+    X-Forwarded-For is never trusted: anyone can send it. In production a CloudFront
+    Function overwrites X-Viewer-Ip with the address CloudFront actually saw, and the
+    origin-secret check (main.py) guarantees the request came through CloudFront. Without
+    an origin secret (local development) the socket address is used.
+    """
+    if get_settings().origin_secret.get_secret_value():
+        viewer = request.headers.get("x-viewer-ip")
+        if viewer:
+            return viewer.strip()[:64]
     return request.client.host if request.client else None
 
 

@@ -4,6 +4,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from app.config import get_settings
+from app.db import connect_args
 from app.models import Base
 
 config = context.config
@@ -27,7 +28,11 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     connectable = config.attributes.get("connection")
     if connectable is None:
-        engine = create_engine(get_settings().database_url, poolclass=pool.NullPool)
+        engine = create_engine(
+            get_settings().database_url,
+            poolclass=pool.NullPool,
+            connect_args=connect_args(get_settings().database_url),
+        )
         with engine.connect() as connection:
             _run(connection)
     else:

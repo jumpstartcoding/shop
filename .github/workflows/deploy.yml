@@ -1,0 +1,178 @@
+name: Deploy
+
+# Every push to main runs all CI checks, then (once AWS is set up, see docs/DEPLOYMENT.md)
+# deploys: database migrations, the API image, the AWS stack, the website, and a go-live
+# check whose results appear on the run's summary page.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: checks
+    # Skipped (not failed) until the GitHub variables from DEPLOYMENT.md exist.
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # GitHub OIDC sign-in to AWS; no AWS keys are stored in GitHub
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      STACK: ${{ vars.STACK_NAME || 'shop' }}
+      BOOTSTRAP_STACK: ${{ vars.BOOTSTRAP_STACK_NAME || 'shop-bootstrap' }}
+      REPOSITORY: ${{ vars.AWS_ECR_REPOSITORY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check settings
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ORIGIN_SECRET: ${{ secrets.ORIGIN_SECRET }}
+          CFN_ROLE: ${{ vars.AWS_CFN_ROLE_ARN }}
+        run: |
+          missing=()
+          [ -n "$DATABASE_URL" ] || missing+=("secret DATABASE_URL")
+          [ ${#ORIGIN_SECRET} -ge 32 ] || missing+=("secret ORIGIN_SECRET (32+ characters)")
+          [ -n "$CFN_ROLE" ] || missing+=("variable AWS_CFN_ROLE_ARN")
+          [ -n "$REPOSITORY" ] || missing+=("variable AWS_ECR_REPOSITORY")
+          if [ ${#missing[@]} -gt 0 ]; then
+            printf '::error::Missing GitHub setting: %s\n' "${missing[@]}"
+            exit 1
+          fi
+
+      # Migrations run before new code goes live. They must stay backward compatible
+      # (add columns/tables; remove things only in a later release), because the old
+      # code keeps serving requests until the stack update finishes.
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Migrate database
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ENVIRONMENT: production
+        run: |
+          uv sync --frozen --no-dev
+          uv run python -m app.tasks migrate
+
+      - name: Build and push API image
+        id: image
+        run: |
+          tag="${GITHUB_SHA::12}"
+          image="${REPOSITORY}:${tag}"
+          registry="${REPOSITORY%%/*}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          # Tags are immutable; a re-run of the same commit reuses its image.
+          if aws ecr describe-images --repository-name "${REPOSITORY#*/}" --image-ids imageTag="$tag" >/dev/null 2>&1; then
+            echo "Image $tag already pushed."
+          else
+            docker build -t "$image" backend
+            docker push "$image"
+          fi
+          digest=$(aws ecr describe-images --repository-name "${REPOSITORY#*/}" --image-ids imageTag="$tag" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          echo "uri=${REPOSITORY}@${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy AWS stack
+        env:
+          ORIGIN_SECRET: ${{ secrets.ORIGIN_SECRET }}
+          CFN_ROLE: ${{ vars.AWS_CFN_ROLE_ARN }}
+          DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
+          HOSTED_ZONE_ID: ${{ vars.HOSTED_ZONE_ID }}
+          CERTIFICATE_ARN: ${{ vars.CERTIFICATE_ARN }}
+          EMAIL_FROM_ADDRESS: ${{ vars.EMAIL_FROM_ADDRESS }}
+          CREATE_EMAIL_IDENTITY: ${{ vars.CREATE_EMAIL_IDENTITY || 'true' }}
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+          RESERVED_CONCURRENCY: ${{ vars.RESERVED_CONCURRENCY || '0' }}
+        run: |
+          aws cloudformation deploy \
+            --stack-name "$STACK" \
+            --template-file infra/template.yaml \
+            --role-arn "$CFN_ROLE" \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              "ImageUri=${{ steps.image.outputs.uri }}" \
+              "BootstrapStackName=$BOOTSTRAP_STACK" \
+              "OriginSecret=$ORIGIN_SECRET" \
+              "DomainName=$DOMAIN_NAME" \
+              "HostedZoneId=$HOSTED_ZONE_ID" \
+              "CertificateArn=$CERTIFICATE_ARN" \
+              "EmailFromAddress=$EMAIL_FROM_ADDRESS" \
+              "CreateEmailIdentity=$CREATE_EMAIL_IDENTITY" \
+              "AlertEmail=$ALERT_EMAIL" \
+              "ReservedConcurrency=$RESERVED_CONCURRENCY"
+
+      - name: Read stack outputs
+        id: stack
+        run: |
+          out() {
+            aws cloudformation describe-stacks --stack-name "$STACK" \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
+          }
+          {
+            echo "site_url=$(out SiteUrl)"
+            echo "cloudfront=$(out CloudFrontDomain)"
+            echo "site_bucket=$(out SiteBucketName)"
+            echo "distribution=$(out DistributionId)"
+            echo "function=$(out ApiFunctionName)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build and upload website
+        working-directory: frontend
+        env:
+          BUCKET: ${{ steps.stack.outputs.site_bucket }}
+          DISTRIBUTION: ${{ steps.stack.outputs.distribution }}
+        run: |
+          npm ci
+          npm run build
+          if grep -rE "sk_(live|test)_|whsec_|AKIA[0-9A-Z]{16}" dist; then
+            echo "::error::A secret-looking string is in the website bundle. Not uploading."
+            exit 1
+          fi
+          # Hashed asset files never change: cache for a year. Old ones are kept so a
+          # page loaded before this deploy can still fetch its chunks.
+          aws s3 sync dist/assets "s3://$BUCKET/assets" \
+            --cache-control "public, max-age=31536000, immutable"
+          # Everything else (index.html, favicon) is checked on every visit.
+          aws s3 sync dist "s3://$BUCKET" --exclude "assets/*" --delete \
+            --cache-control "no-cache"
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" \
+            --paths "/*" --query 'Invalidation.Id' --output text
+
+      - name: Go-live checks
+        env:
+          FUNCTION: ${{ steps.stack.outputs.function }}
+          SITE_URL: ${{ steps.stack.outputs.site_url }}
+          CLOUDFRONT: ${{ steps.stack.outputs.cloudfront }}
+        run: |
+          aws lambda invoke --function-name "$FUNCTION" \
+            --cli-binary-format raw-in-base64-out --payload '{"task":"doctor"}' doctor.json >/dev/null
+          python3 infra/scripts/doctor_summary.py doctor.json "$SITE_URL" >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+          python3 -c "import json,sys; sys.exit(0 if json.load(open('doctor.json')).get('ok') else 1)"
+          # Through CloudFront's own address: a new domain's DNS may not have spread yet.
+          code=$(curl -s -o /dev/null -w '%{http_code}' "https://$CLOUDFRONT/api/health")
+          echo "GET https://$CLOUDFRONT/api/health -> $code"
+          [ "$code" = 200 ]

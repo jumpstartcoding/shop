@@ -1,0 +1,727 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Shop app: website on S3 + CloudFront, API on one Lambda function (container image)
+  behind CloudFront, files and backups in S3, email through SES, nightly upkeep, error
+  alarms. Database is Neon Postgres (outside AWS). Deployed by .github/workflows/deploy.yml;
+  see docs/DEPLOYMENT.md.
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: ECR image for the API (the deploy workflow passes this).
+  BootstrapStackName:
+    Type: String
+    Default: shop-bootstrap
+    Description: Name of the stack created from infra/bootstrap.yaml.
+  DomainName:
+    Type: String
+    Default: ""
+    Description: >-
+      Site address without https://, e.g. ridgelineauto.com or www.ridgelineauto.com.
+      Leave empty to use the CloudFront address until you have a domain.
+  HostedZoneId:
+    Type: String
+    Default: ""
+    Description: >-
+      Route 53 hosted zone for the domain. When set, the stack creates the certificate,
+      the site's DNS records, and the email (DKIM) records for you.
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: >-
+      ACM certificate in us-east-1 for DomainName. Only needed when your DNS is not in
+      Route 53 (set HostedZoneId instead to have the certificate made automatically).
+  EmailFromAddress:
+    Type: String
+    Default: ""
+    Description: >-
+      Address customer emails come from, e.g. service@ridgelineauto.com. Its domain is
+      set up in Amazon SES. Emails show the shop name from Settings.
+  CreateEmailIdentity:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Choose false if the email domain is already set up in SES in this region.
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Gets an email when the app logs errors. Leave empty to skip alarms.
+  OriginSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Random string CloudFront sends to the API so direct calls are refused.
+  SsmPrefix:
+    Type: String
+    Default: /shop/prod
+    AllowedPattern: "^/[A-Za-z0-9/_-]+[A-Za-z0-9_-]$"
+    Description: Parameter Store path holding the app's secrets.
+  ReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: >-
+      Cap on simultaneous API executions (0 = no cap). New AWS accounts often have a
+      total limit of 10 and cannot reserve any; raise this once the account allows it.
+  PriceClass:
+    Type: String
+    Default: PriceClass_100
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+    Description: PriceClass_100 serves from North America and Europe edge locations.
+  LogLevel:
+    Type: String
+    Default: INFO
+    AllowedValues: [DEBUG, INFO, WARNING, ERROR]
+
+Rules:
+  DomainNeedsCertificate:
+    RuleCondition: !Not [!Equals [!Ref DomainName, ""]]
+    Assertions:
+      - Assert: !Or
+          - !Not [!Equals [!Ref CertificateArn, ""]]
+          - !Not [!Equals [!Ref HostedZoneId, ""]]
+        AssertDescription: A custom domain needs CertificateArn or HostedZoneId.
+  CertificateRegion:
+    RuleCondition: !And
+      - !Not [!Equals [!Ref DomainName, ""]]
+      - !Equals [!Ref CertificateArn, ""]
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", us-east-1]
+        AssertDescription: >-
+          CloudFront certificates must live in us-east-1. Deploy this stack in us-east-1,
+          or create the certificate there yourself and pass CertificateArn.
+
+Conditions:
+  HasDomain: !Not [!Equals [!Ref DomainName, ""]]
+  HasZone: !Not [!Equals [!Ref HostedZoneId, ""]]
+  HasCertArn: !Not [!Equals [!Ref CertificateArn, ""]]
+  MakeCert: !And [!Condition HasDomain, !Not [!Condition HasCertArn]]
+  DomainDns: !And [!Condition HasDomain, !Condition HasZone]
+  HasEmail: !Not [!Equals [!Ref EmailFromAddress, ""]]
+  MakeEmailIdentity: !And [!Condition HasEmail, !Equals [!Ref CreateEmailIdentity, "true"]]
+  EmailDns: !And [!Condition MakeEmailIdentity, !Condition HasZone]
+  EmailRecordsByHand: !And [!Condition MakeEmailIdentity, !Not [!Condition HasZone]]
+  HasAlerts: !Not [!Equals [!Ref AlertEmail, ""]]
+  HasReserved: !Not [!Equals [!Ref ReservedConcurrency, 0]]
+
+Resources:
+  # ---------------------------------------------------------------- storage
+
+  FilesBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VersioningConfiguration: { Status: Enabled }
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - Id: old-versions
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 }
+
+  FilesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FilesBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt FilesBucket.Arn, !Sub "${FilesBucket.Arn}/*"]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  BackupsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VersioningConfiguration: { Status: Enabled }
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - Id: daily
+            Status: Enabled
+            Prefix: daily/
+            ExpirationInDays: 35
+          - Id: monthly
+            Status: Enabled
+            Prefix: monthly/
+            ExpirationInDays: 400
+          - Id: overwritten
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 7 }
+
+  BackupsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BackupsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt BackupsBucket.Arn, !Sub "${BackupsBucket.Arn}/*"]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudFrontRead
+            Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt SiteBucket.Arn, !Sub "${SiteBucket.Arn}/*"]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  # ---------------------------------------------------------------- API
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/shop/${AWS::StackName}/api"
+      RetentionInDays: 30
+
+  ApiFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: api
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "${ApiLogGroup.Arn}"
+              - Sid: Files
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub "${FilesBucket.Arn}/*"
+              - Sid: Email
+                Effect: Allow
+                Action: [ses:SendEmail, ses:SendRawEmail]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+                  - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/*"
+              - Sid: EmailStatus
+                Effect: Allow
+                Action: [ses:GetAccount, ses:GetEmailIdentity]
+                Resource: "*"
+              - Sid: Secrets
+                Effect: Allow
+                Action: ssm:GetParametersByPath
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SsmPrefix}/*"
+              - Sid: DecryptSecrets
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Shop API (FastAPI) and scheduled tasks
+      PackageType: Image
+      Code: { ImageUri: !Ref ImageUri }
+      Architectures: [x86_64]
+      MemorySize: 1024
+      Timeout: 30
+      Role: !GetAtt ApiFunctionRole.Arn
+      ReservedConcurrentExecutions: !If [HasReserved, !Ref ReservedConcurrency, !Ref "AWS::NoValue"]
+      LoggingConfig:
+        LogGroup: !Ref ApiLogGroup
+        LogFormat: Text
+      Environment:
+        Variables:
+          ENVIRONMENT: production
+          SSM_PREFIX: !Ref SsmPrefix
+          ORIGIN_SECRET: !Ref OriginSecret
+          # Set from the domain. Without a domain, put the CloudFront address in Parameter
+          # Store as <SsmPrefix>/PUBLIC_BASE_URL (it overrides this value).
+          PUBLIC_BASE_URL: !If [HasDomain, !Sub "https://${DomainName}", ""]
+          STORAGE_BACKEND: s3
+          FILES_BUCKET: !Ref FilesBucket
+          EMAIL_BACKEND: ses
+          EMAIL_FROM: !Ref EmailFromAddress
+          LOG_LEVEL: !Ref LogLevel
+
+  ApiFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt ApiFunction.Arn
+      # Public URL, but the app refuses any request without CloudFront's origin secret.
+      # (CloudFront origin access control for Lambda would need viewers to sign request
+      # bodies, which Stripe's webhooks can't do.)
+      AuthType: NONE
+
+  ApiFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  ApiFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+  NightlyRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Nightly upkeep (overdue invoices); 09:30 UTC is 5:30 AM Eastern
+      ScheduleExpression: cron(30 9 * * ? *)
+      State: ENABLED
+      Targets:
+        - Id: api
+          Arn: !GetAtt ApiFunction.Arn
+          Input: '{"task": "nightly"}'
+
+  NightlyPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt NightlyRule.Arn
+
+  # ---------------------------------------------------------------- CloudFront
+
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: MakeCert
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  SiteOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-site"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Sends every non-file path (/admin/..., /d/<token>, /book) to the single-page app.
+  # Error-page rewrites can't be used: they would also replace the API's JSON 404s.
+  SpaRouterFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${AWS::StackName}-spa-router"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Serve index.html for app routes
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var last = request.uri.substring(request.uri.lastIndexOf('/') + 1);
+          if (last.indexOf('.') === -1) {
+            request.uri = '/index.html';
+          }
+          return request;
+        }
+
+  # Tells the API who the visitor is. Overwrites anything the visitor sent, so the app
+  # can trust it for rate limits and the signature audit trail.
+  ApiViewerFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${AWS::StackName}-api-viewer"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Set X-Viewer-Ip from the connection
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          request.headers['x-viewer-ip'] = { value: event.viewer.ip };
+          return request;
+        }
+
+  SiteHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${AWS::StackName}-site-headers"
+        SecurityHeadersConfig:
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: false
+            Override: true
+          ContentTypeOptions: { Override: true }
+          FrameOptions: { FrameOption: DENY, Override: true }
+          ReferrerPolicy: { ReferrerPolicy: strict-origin-when-cross-origin, Override: true }
+          ContentSecurityPolicy:
+            Override: true
+            ContentSecurityPolicy: >-
+              default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+              img-src 'self' data: blob:; font-src 'self'; connect-src 'self';
+              frame-src https://www.google.com; object-src 'none'; base-uri 'self';
+              form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+        CustomHeadersConfig:
+          Items:
+            - Header: Permissions-Policy
+              Value: camera=(self), microphone=(), geolocation=(), payment=()
+              Override: true
+
+  ApiHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${AWS::StackName}-api-headers"
+        SecurityHeadersConfig:
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: false
+            Override: true
+          ContentTypeOptions: { Override: true }
+          FrameOptions: { FrameOption: DENY, Override: true }
+          ReferrerPolicy: { ReferrerPolicy: same-origin, Override: true }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks: [W1030] # CertificateArn is only used when it was given
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${AWS::StackName} shop"
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        DefaultRootObject: index.html
+        Aliases: !If [HasDomain, [!Ref DomainName], !Ref "AWS::NoValue"]
+        ViewerCertificate: !If
+          - HasDomain
+          - AcmCertificateArn: !If [MakeCert, !Ref Certificate, !Ref CertificateArn]
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: site
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt SiteOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: api
+            DomainName: !Select [2, !Split ["/", !GetAtt ApiFunctionUrl.FunctionUrl]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              HTTPSPort: 443
+              OriginSSLProtocols: [TLSv1.2]
+              OriginReadTimeout: 30
+              OriginKeepaliveTimeout: 5
+            OriginCustomHeaders:
+              - HeaderName: X-Origin-Secret
+                HeaderValue: !Ref OriginSecret
+        DefaultCacheBehavior:
+          TargetOriginId: site
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          ResponseHeadersPolicyId: !Ref SiteHeadersPolicy
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt SpaRouterFunction.FunctionMetadata.FunctionARN
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: false
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # Managed-AllViewerExceptHostHeader
+            ResponseHeadersPolicyId: !Ref ApiHeadersPolicy
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt ApiViewerFunction.FunctionMetadata.FunctionARN
+
+  SiteDnsA:
+    Type: AWS::Route53::RecordSet
+    Condition: DomainDns
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt Distribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2 # CloudFront's fixed zone id
+
+  SiteDnsAAAA:
+    Type: AWS::Route53::RecordSet
+    Condition: DomainDns
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: AAAA
+      AliasTarget:
+        DNSName: !GetAtt Distribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+  # ---------------------------------------------------------------- email
+
+  EmailIdentity:
+    Type: AWS::SES::EmailIdentity
+    Condition: MakeEmailIdentity
+    Properties:
+      EmailIdentity: !Select [1, !Split ["@", !Ref EmailFromAddress]]
+      DkimSigningAttributes:
+        NextSigningKeyLength: RSA_2048_BIT
+
+  DkimRecord1:
+    Type: AWS::Route53::RecordSet
+    Condition: EmailDns
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt EmailIdentity.DkimDNSTokenName1
+      Type: CNAME
+      TTL: "1800"
+      ResourceRecords: [!GetAtt EmailIdentity.DkimDNSTokenValue1]
+
+  DkimRecord2:
+    Type: AWS::Route53::RecordSet
+    Condition: EmailDns
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt EmailIdentity.DkimDNSTokenName2
+      Type: CNAME
+      TTL: "1800"
+      ResourceRecords: [!GetAtt EmailIdentity.DkimDNSTokenValue2]
+
+  DkimRecord3:
+    Type: AWS::Route53::RecordSet
+    Condition: EmailDns
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt EmailIdentity.DkimDNSTokenName3
+      Type: CNAME
+      TTL: "1800"
+      ResourceRecords: [!GetAtt EmailIdentity.DkimDNSTokenValue3]
+
+  # ---------------------------------------------------------------- alarms
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasAlerts
+    Properties:
+      DisplayName: Shop alerts
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+
+  AppErrorsMetric:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroup
+      FilterPattern: '{ $.level = "error" }'
+      MetricTransformations:
+        - MetricNamespace: !Sub "Shop/${AWS::StackName}"
+          MetricName: AppErrors
+          MetricValue: "1"
+          DefaultValue: 0
+
+  AppErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlerts
+    Properties:
+      AlarmDescription: The shop app logged an error. Check the API log group.
+      Namespace: !Sub "Shop/${AWS::StackName}"
+      MetricName: AppErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  FunctionErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlerts
+    Properties:
+      AlarmDescription: The API function crashed, timed out, or a scheduled task failed.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref ApiFunction }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  ThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlerts
+    Properties:
+      AlarmDescription: Requests were turned away because the function hit its concurrency limit.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [{ Name: FunctionName, Value: !Ref ApiFunction }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  # ---------------------------------------------------------------- GitHub access
+
+  # Lets the deploy workflow upload the website, refresh CloudFront, and run tasks.
+  DeployAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Deploy-time access for the GitHub deploy role
+      Roles:
+        - Fn::ImportValue: !Sub "${BootstrapStackName}-DeployRoleName"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: s3:ListBucket
+            Resource: !GetAtt SiteBucket.Arn
+          - Effect: Allow
+            Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+            Resource: !Sub "${SiteBucket.Arn}/*"
+          - Effect: Allow
+            Action: [cloudfront:CreateInvalidation, cloudfront:GetInvalidation]
+            Resource: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+          - Effect: Allow
+            Action: [lambda:InvokeFunction, lambda:GetFunction, lambda:GetFunctionConfiguration]
+            Resource: !GetAtt ApiFunction.Arn
+
+  # The nightly backup workflow can add backups but cannot read, list, or delete them.
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub
+                  - "repo:${Repo}:ref:refs/heads/main"
+                  - Repo:
+                      Fn::ImportValue: !Sub "${BootstrapStackName}-GitHubRepository"
+      Policies:
+        - PolicyName: write-backups
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${BackupsBucket.Arn}/*"
+
+Outputs:
+  SiteUrl:
+    Description: The site's address
+    Value: !If [HasDomain, !Sub "https://${DomainName}", !Sub "https://${Distribution.DomainName}"]
+  CloudFrontDomain:
+    Description: Point your domain here (CNAME or ALIAS) if your DNS isn't in Route 53
+    Value: !GetAtt Distribution.DomainName
+  DistributionId:
+    Value: !Ref Distribution
+  SiteBucketName:
+    Value: !Ref SiteBucket
+  FilesBucketName:
+    Value: !Ref FilesBucket
+  BackupsBucketName:
+    Description: GitHub variable BACKUP_BUCKET
+    Value: !Ref BackupsBucket
+  BackupRoleArn:
+    Description: GitHub variable AWS_BACKUP_ROLE_ARN
+    Value: !GetAtt BackupRole.Arn
+  ApiFunctionName:
+    Value: !Ref ApiFunction
+  ApiLogGroupName:
+    Value: !Ref ApiLogGroup
+  EmailDkimRecords:
+    Condition: EmailRecordsByHand
+    Description: Add these three CNAME records at your DNS provider so SES can send for your domain
+    Value: !Join
+      - " | "
+      - - !Sub "${EmailIdentity.DkimDNSTokenName1} CNAME ${EmailIdentity.DkimDNSTokenValue1}"
+        - !Sub "${EmailIdentity.DkimDNSTokenName2} CNAME ${EmailIdentity.DkimDNSTokenValue2}"
+        - !Sub "${EmailIdentity.DkimDNSTokenName3} CNAME ${EmailIdentity.DkimDNSTokenValue3}"

@@ -129,27 +129,47 @@ def _vehicle(db, customer, **kw) -> Vehicle:
     return v
 
 
+def _apply_shop_profile(db: Session) -> None:
+    business = get_business(db)
+    for k, v in PLACEHOLDER_SHOP.items():
+        setattr(business, k, v)
+    if db.scalar(select(func.count()).select_from(Service)):
+        return
+    for i, (name, cat, desc, price) in enumerate(SERVICES):
+        slug = name.lower().replace(" / ", "-").replace(" ", "-")
+        db.add(
+            Service(
+                name=name,
+                slug=slug,
+                category=cat,
+                description=desc,
+                starting_price_cents=price,
+                sort_order=i,
+            )
+        )
+
+
+def setup_shop() -> dict:
+    """Load the placeholder shop profile and the standard services list into a fresh
+    database, so the public site isn't empty on day one. Safe in production: it adds no
+    customers and no logins, and refuses once the shop has been set up."""
+    with Session(get_engine()) as db:
+        business = get_business(db)
+        if business.name != "My Auto Repair" or db.scalar(
+            select(func.count()).select_from(Service)
+        ):
+            return {"ok": False, "error": "The shop is already set up; nothing changed."}
+        _apply_shop_profile(db)
+        db.commit()
+        return {"ok": True, "task": "setup_shop", "services": len(SERVICES)}
+
+
 def seed_demo() -> dict:
     with Session(get_engine()) as db:
         if db.scalar(select(func.count()).select_from(Customer)):
             return {"ok": False, "error": "Database already has customers; demo data not loaded."}
 
-        business = get_business(db)
-        for k, v in PLACEHOLDER_SHOP.items():
-            setattr(business, k, v)
-
-        for i, (name, cat, desc, price) in enumerate(SERVICES):
-            slug = name.lower().replace(" / ", "-").replace(" ", "-")
-            db.add(
-                Service(
-                    name=name,
-                    slug=slug,
-                    category=cat,
-                    description=desc,
-                    starting_price_cents=price,
-                    sort_order=i,
-                )
-            )
+        _apply_shop_profile(db)
 
         user = db.scalar(select(User).where(User.email == DEMO_EMAIL))
         if user is None:

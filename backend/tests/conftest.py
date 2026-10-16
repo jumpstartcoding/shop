@@ -171,6 +171,7 @@ class FakeGateway:
         self.checkouts = []
         self.refunds = []
         self.fail_refunds = False
+        self.endpoints = []
 
     def create_checkout(self, **kw):
         from app.core.payments import CheckoutSession
@@ -186,6 +187,9 @@ class FakeGateway:
             raise PaymentProviderError("The refund could not be processed. No money was moved.")
         self.refunds.append(kw)
         return f"re_test_{len(self.refunds)}"
+
+    def webhook_endpoints(self):
+        return self.endpoints
 
 
 @pytest.fixture(autouse=True)

@@ -57,6 +57,10 @@ class Gateway(Protocol):
         self, *, payment_intent: str, amount_cents: int, idempotency_key: str, reason_note: str
     ) -> str: ...
 
+    def webhook_endpoints(self) -> list[dict]:
+        """[{"url", "status", "events"}] for the go-live check. Raises PaymentProviderError."""
+        ...
+
 
 class StripeGateway:
     def __init__(self, api_key: str):
@@ -125,6 +129,18 @@ class StripeGateway:
                 )
             ) from exc
         return r.id
+
+    def webhook_endpoints(self) -> list[dict]:
+        try:
+            page = self.client.webhook_endpoints.list(params={"limit": 100})
+        except self._stripe.StripeError as exc:
+            raise PaymentProviderError(
+                getattr(exc, "user_message", None) or str(exc) or "Stripe request failed."
+            ) from exc
+        return [
+            {"url": e.url, "status": e.status, "events": list(e.enabled_events or [])}
+            for e in page.data
+        ]
 
 
 _override: Gateway | None = None

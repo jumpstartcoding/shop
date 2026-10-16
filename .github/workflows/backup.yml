@@ -1,0 +1,49 @@
+name: Backup
+
+# Nightly database backup to the stack's private S3 bucket. Daily copies are kept 35 days,
+# first-of-month copies 400 days (S3 lifecycle rules in infra/template.yaml). The backup
+# role can add files but not read or delete them. GitHub emails you if a run fails.
+# Restore steps: docs/BACKUPS.md.
+on:
+  schedule:
+    - cron: "17 7 * * *" # 07:17 UTC = 3:17 AM Eastern (2:17 AM in winter)
+  workflow_dispatch:
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  backup:
+    if: vars.AWS_BACKUP_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_BACKUP_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Dump and verify
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          # pg_dump must be at least the server's version; the newest image covers that.
+          docker run --rm -e DATABASE_URL -v "$PWD:/work" -w /work postgres:18 \
+            bash infra/scripts/backup-dump.sh shop.dump
+
+      - name: Upload
+        env:
+          BUCKET: ${{ vars.BACKUP_BUCKET }}
+        run: |
+          stamp=$(date -u +%Y-%m-%dT%H%MZ)
+          aws s3 cp shop.dump "s3://$BUCKET/daily/shop-$stamp.dump" --only-show-errors
+          if [ "$(date -u +%d)" = "01" ]; then
+            aws s3 cp shop.dump "s3://$BUCKET/monthly/shop-$stamp.dump" --only-show-errors
+          fi
+          echo "Backed up to s3://$BUCKET/daily/shop-$stamp.dump" >> "$GITHUB_STEP_SUMMARY"
