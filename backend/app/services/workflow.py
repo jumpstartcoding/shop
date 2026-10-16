@@ -23,6 +23,7 @@ from app.models import (
     Inspection,
     Invoice,
     InvoiceItem,
+    Part,
     Payment,
     User,
     Vehicle,
@@ -39,7 +40,7 @@ from app.schemas.documents import (
     PaymentIn,
     WorkOrderCreate,
 )
-from app.services import documents, history
+from app.services import documents, history, stock
 from app.services.business import get_business, shop_today
 from app.services.lines import apply_totals, build_line, copy_line
 
@@ -88,14 +89,28 @@ def _bump_mileage(vehicle: Vehicle, mileage: int | None) -> None:
 # ---------------------------------------------------------------- line editing (shared)
 
 
-def replace_lines(doc, item_model, items: list[LineItemIn], business: Business) -> None:
+def check_parts(db: Session | None, items: list[LineItemIn]) -> None:
+    """Lines picked from the parts list must point at a part that exists."""
+    ids = {i.part_id for i in items if i.part_id is not None}
+    if not ids or db is None:
+        return
+    found = set(db.scalars(select(Part.id).where(Part.id.in_(ids))))
+    if ids - found:
+        raise InvalidReference("A part on this document is no longer in the parts list.")
+
+
+def replace_lines(
+    doc, item_model, items: list[LineItemIn], business: Business, db: Session | None = None
+) -> None:
+    check_parts(db, items)
     doc.items.clear()
     for i, data in enumerate(items):
         doc.items.append(build_line(item_model, data, business, i))
     apply_totals(doc, doc.items, doc.tax_rate)
 
 
-def append_line(doc, item_model, data: LineItemIn, business: Business):
+def append_line(doc, item_model, data: LineItemIn, business: Business, db: Session | None = None):
+    check_parts(db, [data])
     position = max((li.position for li in doc.items), default=-1) + 1
     line = build_line(item_model, data, business, position)
     doc.items.append(line)
@@ -134,7 +149,7 @@ def create_work_order(db: Session, user: User, data: WorkOrderCreate) -> WorkOrd
         tax_rate=business.tax_rate,
     )
     db.add(wo)
-    replace_lines(wo, WorkOrderItem, data.items, business)
+    replace_lines(wo, WorkOrderItem, data.items, business, db)
     _bump_mileage(vehicle, data.mileage_in)
     db.flush()
 
@@ -188,9 +203,11 @@ def change_work_order_status(
     elif previous == "completed":
         wo.completed_at = None
         history.hide_for_reopened(db, wo)
+        stock.put_back_for_reopened(db, user, wo)
     wo.status = status
     if status == "completed":
         history.record_completion(db, wo)
+        stock.take_for_completed(db, user, wo)
     audit.record(
         db,
         user=user,
@@ -253,7 +270,7 @@ def create_estimate(db: Session, user: User, data: EstimateCreate) -> Estimate:
             est.items.append(copy_line(EstimateItem, src, i))
         apply_totals(est, est.items, est.tax_rate)
     else:
-        replace_lines(est, EstimateItem, data.items or [], business)
+        replace_lines(est, EstimateItem, data.items or [], business, db)
     db.flush()
     audit.record(
         db,
@@ -508,7 +525,7 @@ def create_invoice(db: Session, user: User, data: InvoiceCreate) -> Invoice:
         customer_notes=data.customer_notes,
         internal_notes=data.internal_notes,
     )
-    replace_lines(inv, InvoiceItem, data.items, business)
+    replace_lines(inv, InvoiceItem, data.items, business, db)
     db.flush()
     audit.record(
         db,

@@ -40,6 +40,8 @@ class LineItemIn(BaseModel):
     warranty_months: Annotated[int, Field(ge=0, le=600)] | None = None
     warranty_miles: Annotated[int, Field(ge=0, le=1_000_000)] | None = None
     warranty_notes: ShortText(300) = None
+    # From the parts list (stock comes out when the work order is completed).
+    part_id: int | None = None
 
     @model_validator(mode="after")
     def price_is_determinable(self):
@@ -70,6 +72,7 @@ class LineItemOut(ORMModel):
     warranty_months: int | None
     warranty_miles: int | None
     warranty_notes: str | None
+    part_id: int | None = None
 
 
 class TotalsOut(ORMModel):

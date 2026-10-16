@@ -20,7 +20,7 @@ from app.services import photos
 
 router = APIRouter(tags=["photos"])
 
-EntityType = Literal["inspection_item", "work_order", "estimate", "vehicle", "customer"]
+EntityType = Literal["inspection_item", "work_order", "estimate", "vehicle", "customer", "expense"]
 assert set(EntityType.__args__) == set(PHOTO_ENTITIES)
 
 

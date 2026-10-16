@@ -203,7 +203,7 @@ def replace_items(
 ):
     wo = workflow.get_or_404(db, WorkOrder, wo_id, "Work order", lock=True)
     workflow.ensure_work_order_editable(wo)
-    workflow.replace_lines(wo, WorkOrderItem, items, get_business(db))
+    workflow.replace_lines(wo, WorkOrderItem, items, get_business(db), db)
     db.flush()
     _audit_lines(db, user, wo, "work_order.lines_updated", {"line_count": len(items)})
     return work_order_out(db, wo)
@@ -215,7 +215,7 @@ def add_item(
 ):
     wo = workflow.get_or_404(db, WorkOrder, wo_id, "Work order", lock=True)
     workflow.ensure_work_order_editable(wo)
-    line = workflow.append_line(wo, WorkOrderItem, item, get_business(db))
+    line = workflow.append_line(wo, WorkOrderItem, item, get_business(db), db)
     db.flush()
     _audit_lines(
         db,

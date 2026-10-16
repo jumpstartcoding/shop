@@ -12,6 +12,7 @@ from app.core.storage import get_storage, new_key
 from app.models import (
     Customer,
     Estimate,
+    Expense,
     Inspection,
     InspectionItem,
     Photo,
@@ -23,7 +24,7 @@ from app.models import (
 MAX_PER_THING = 30
 
 
-def owner_of(db: Session, entity_type: str, entity_id: int) -> tuple[int, int | None]:
+def owner_of(db: Session, entity_type: str, entity_id: int) -> tuple[int | None, int | None]:
     """(customer_id, vehicle_id) for the thing a photo is attached to."""
     if entity_type == "inspection_item":
         item = db.get(InspectionItem, entity_id)
@@ -47,6 +48,10 @@ def owner_of(db: Session, entity_type: str, entity_id: int) -> tuple[int, int | 
     elif entity_type == "customer":
         if db.get(Customer, entity_id) is not None:
             return entity_id, None
+    elif entity_type == "expense":
+        e = db.get(Expense, entity_id)
+        if e is not None and e.deleted_at is None:
+            return None, None
     raise NotFound("The thing you're adding a photo to wasn't found.")
 
 
@@ -82,7 +87,7 @@ def add_photo(
         )
     processed = process_photo(raw, content_type)
     storage = get_storage()
-    key = new_key(f"photos/{customer_id}", "jpg")
+    key = new_key(f"photos/{customer_id or 'shop'}", "jpg")
     thumb_key = key.replace(".jpg", "-thumb.jpg")
     storage.put(key, processed.full, "image/jpeg")
     storage.put(thumb_key, processed.thumb, "image/jpeg")

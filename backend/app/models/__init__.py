@@ -1,3 +1,4 @@
+from app.models.admin import Expense, MaintenanceReminder, Part, Vendor
 from app.models.base import Base
 from app.models.core import AuditLog, Business, DocumentCounter, Service, User, UserSession
 from app.models.customers import Appointment, Customer, Vehicle
@@ -39,6 +40,10 @@ __all__ = [
     "Customer",
     "DocumentCounter",
     "Estimate",
+    "Expense",
+    "MaintenanceReminder",
+    "Part",
+    "Vendor",
     "EstimateItem",
     "Invoice",
     "InvoiceItem",

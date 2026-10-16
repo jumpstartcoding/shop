@@ -76,6 +76,7 @@ export type LineItem = {
   warranty_months: number | null;
   warranty_miles: number | null;
   warranty_notes: string | null;
+  part_id: number | null;
 };
 
 export type LineItemIn = {
@@ -91,6 +92,7 @@ export type LineItemIn = {
   warranty_months?: number | null;
   warranty_miles?: number | null;
   warranty_notes?: string | null;
+  part_id?: number | null;
 };
 
 export type Totals = {
@@ -335,6 +337,8 @@ export type Business = {
   testimonials: Testimonial[];
   reviews_url: string | null;
   online_payments_enabled: boolean;
+  reminder_emails: boolean;
+  reminder_lead_days: number;
 };
 
 export type PaymentSettings = { configured: boolean; mode: "test" | "live" | null; enabled: boolean; currency: string; min_cents: number };
@@ -399,7 +403,7 @@ export type AuditEntry = {
   details: Record<string, unknown>;
 };
 
-export type PhotoEntity = "inspection_item" | "work_order" | "estimate" | "vehicle" | "customer";
+export type PhotoEntity = "inspection_item" | "work_order" | "estimate" | "vehicle" | "customer" | "expense";
 
 export type Photo = {
   id: number;
@@ -494,3 +498,123 @@ export type Warranty = {
 };
 
 export type ServiceHistory = { records: ServiceRecord[]; warranties: Warranty[] };
+
+export type Vendor = {
+  id: number;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  account_number: string | null;
+  notes: string | null;
+  archived_at: string | null;
+};
+
+export type Part = {
+  id: number;
+  name: string;
+  part_number: string | null;
+  category: string | null;
+  vendor_id: number | null;
+  vendor_name: string | null;
+  cost_cents: number | null;
+  price_cents: number | null;
+  effective_price_cents: number | null;
+  price_from_markup: boolean;
+  quantity: string | null;
+  reorder_at: string | null;
+  low_stock: boolean;
+  warranty_months: number | null;
+  warranty_miles: number | null;
+  warranty_notes: string | null;
+  notes: string | null;
+  archived_at: string | null;
+};
+
+export const EXPENSE_CATEGORIES = ["parts", "tools", "rent", "utilities", "insurance", "advertising", "software", "supplies", "other"] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+
+export type Expense = {
+  id: number;
+  expense_date: string;
+  category: ExpenseCategory;
+  amount_cents: number;
+  vendor_id: number | null;
+  vendor_name: string | null;
+  description: string | null;
+  receipts: Photo[];
+  created_at: string;
+};
+
+export type ExpenseList = {
+  start: string;
+  end: string;
+  items: Expense[];
+  total_cents: number;
+  by_category: Partial<Record<ExpenseCategory, number>>;
+};
+
+export type Reminder = {
+  id: number;
+  vehicle_id: number;
+  vehicle_name: string;
+  vehicle_mileage: number | null;
+  customer_id: number;
+  customer_name: string;
+  customer_email: string | null;
+  customer_phone: string | null;
+  kind: string;
+  title: string;
+  due_date: string | null;
+  due_mileage: number | null;
+  notes: string | null;
+  status: "open" | "done" | "dismissed";
+  due: boolean;
+  overdue: boolean;
+  emailed_at: string | null;
+  email_status: string | null;
+  work_order_id: number | null;
+  created_at: string;
+};
+
+export type ReminderPreset = { kind: string; title: string; months: number | null; miles: number | null };
+
+export type ReportSummary = {
+  start: string;
+  end: string;
+  collected: {
+    total_cents: number;
+    payments: number;
+    by_method: Record<string, number>;
+    by_period: { period: string; cents: number }[];
+    period: "day" | "month";
+  };
+  invoiced: {
+    count: number;
+    total_cents: number;
+    labor_cents: number;
+    parts_cents: number;
+    fees_cents: number;
+    discount_cents: number;
+    tax_cents: number;
+    average_cents: number;
+    paid_count: number;
+    unpaid_count: number;
+  };
+  outstanding_cents: number;
+  expenses: { total_cents: number; by_category: Record<string, number> };
+  collected_less_expenses_cents: number;
+  notice: string;
+};
+
+export type VinDecode = {
+  vin: string;
+  year: number | null;
+  make: string | null;
+  model: string | null;
+  trim: string | null;
+  engine: string | null;
+  transmission: string | null;
+  body: string | null;
+  warning: string | null;
+};

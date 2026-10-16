@@ -195,6 +195,21 @@ function BusinessForm({ business }: { business: Business }) {
         </div>
       </Sheet>
 
+      <Sheet title="Service reminders">
+        <div className="space-y-3 p-4">
+          <label className="flex min-h-12 items-center gap-3">
+            <input type="checkbox" className="h-6 w-6" {...check("reminder_emails")} />
+            Email customers automatically when a service reminder comes due
+          </label>
+          <div className="max-w-xs">
+            <Field label="Days ahead to count a reminder as due" hint="Also how early the email goes out.">
+              {(p) => <input {...p} className="field" inputMode="numeric" {...text("reminder_lead_days")} />}
+            </Field>
+          </div>
+          <p className="text-[15px] text-steel-2">Each reminder is emailed once, early in the morning. Due reminders also show on the Today screen and the Reminders page, where you can call, text, or email by hand.</p>
+        </div>
+      </Sheet>
+
       <Sheet title="Reviews on your website">
         <div className="space-y-4 p-4">
           <p className="text-[15px] text-steel-2">Only add real reviews from real customers, with their permission. The section stays hidden until you add one.</p>

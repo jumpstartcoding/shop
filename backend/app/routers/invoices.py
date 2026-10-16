@@ -156,7 +156,7 @@ def replace_items(
     inv = _load(db, inv_id, lock=True)
     workflow.ensure_invoice_editable(inv)
     before_total = inv.total_cents
-    workflow.replace_lines(inv, InvoiceItem, items, get_business(db))
+    workflow.replace_lines(inv, InvoiceItem, items, get_business(db), db)
     db.flush()
     audit.record(
         db,
@@ -175,7 +175,7 @@ def add_item(
 ):
     inv = _load(db, inv_id, lock=True)
     workflow.ensure_invoice_editable(inv)
-    line = workflow.append_line(inv, InvoiceItem, item, get_business(db))
+    line = workflow.append_line(inv, InvoiceItem, item, get_business(db), db)
     db.flush()
     audit.record(
         db,

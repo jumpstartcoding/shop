@@ -3,6 +3,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { LineItems } from "../components/LineItems";
 import { PhotoStrip } from "../components/Photos";
+import { ReminderModal } from "./Reminders";
 import { CustomerVehiclePicker } from "../components/Picker";
 import { AuthorizationBanner, DocumentTrail, SendButton } from "../components/Sending";
 import { Button, ErrorNote, Field, InternalNote, LinkButton, Loading, Modal, PageHeader, Sheet, StatusBadge } from "../components/ui";
@@ -83,7 +84,7 @@ export function NewWorkOrder() {
 export function WorkOrderPage() {
   const id = Number(useParams().id);
   const navigate = useNavigate();
-  const [modal, setModal] = useState<null | "notes" | "checklist">(null);
+  const [modal, setModal] = useState<null | "notes" | "checklist" | "reminder">(null);
   const { data: wo, error, isLoading } = useQuery({
     queryKey: ["work-order", id],
     queryFn: () => api.get<WorkOrder>(`/work-orders/${id}`),
@@ -185,6 +186,7 @@ export function WorkOrderPage() {
             </LinkButton>
           )}
           <Button onClick={() => setModal("checklist")}>Completion checklist</Button>
+          {wo.status === "completed" && <Button onClick={() => setModal("reminder")}>Remind about next service</Button>}
           {wo.status === "ready_for_pickup" && wo.party.customer_email && (
             <Button onClick={() => notifyReady.mutate()} busy={notifyReady.isPending}>
               Email customer it's ready
@@ -256,6 +258,9 @@ export function WorkOrderPage() {
       </p>
 
       {modal === "notes" && <NotesModal wo={wo} onClose={() => setModal(null)} />}
+      {modal === "reminder" && (
+        <ReminderModal vehicleId={wo.vehicle_id} mileage={wo.mileage_out ?? wo.mileage_in} workOrderId={wo.id} onClose={() => setModal(null)} />
+      )}
       {modal === "checklist" && (
         <ChecklistModal
           wo={wo}

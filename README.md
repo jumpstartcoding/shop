@@ -6,7 +6,7 @@ Website and shop-management system for a one-person auto repair shop: customers,
 
 ## Status
 
-Built in phases; each phase ships working, tested functionality. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full plan and the reasoning behind every choice. Production hardening (Phase 6) was done ahead of Phases 4 and 5 so the shop can go live on what exists now; the remaining phases add features without changing how it's deployed.
+All six planned phases are built; V1 is feature-complete. Each phase shipped working, tested functionality (production hardening was done before Phases 4 and 5). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design and the reasoning behind every choice, the [V1 feature list](#v1-feature-list), [known limits](#known-limits), and the [roadmap](#roadmap).
 
 **To put it online, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).**
 
@@ -18,7 +18,7 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 | 3 | Stripe online payments, receipts, refunds | **Done** (109 backend tests) |
 | 6 | Production: AWS templates, deploy and backup pipelines, go-live checks, security review | **Done** (128 backend tests) |
 | 4 | Inspections, photos, service history | **Done** (142 backend tests) |
-| 5 | Parts, vendors, expenses, reminders, reports, CSV export, VIN decode | Planned |
+| 5 | Parts, vendors, expenses, reminders, reports, CSV export, VIN decode | **Done** (151 backend tests) |
 
 ### What Phase 1a does today
 - **Sign-in:** one owner account, Argon2id passwords, server-side sessions in HttpOnly cookies, CSRF tokens, temporary lockout after repeated failures.
@@ -77,7 +77,60 @@ Setup, test cards, and the webhook events to register are in [docs/PAYMENTS.md](
 - **Estimates from findings:** one tap turns red and yellow findings into a draft estimate (an additional-work request if the job is already approved). Findings and photos are shown with the estimate, on the customer's page and the PDF.
 - **Service history:** every completed job becomes part of the vehicle's record (date, mileage, work, invoice, total, notes). Add past work done elsewhere by hand. Warranties from part and labor lines show as active or expired by date and mileage.
 
-What it does **not** do yet: parts, vendors, expenses, reminders, reports, and CSV export (Phase 5).
+### What Phase 5 adds
+- **Parts list and suppliers:** parts with number, category, supplier, cost, customer price (or the shop's markup on cost), warranty, and an optional stock count with a reorder level. **From parts list** on any work order, estimate, or invoice fills the line in one tap. Stock comes out when the work order is completed and goes back if it's reopened; low stock shows on the Today screen. Suppliers keep phone, website, account number, and notes.
+- **Expenses** by date, category (parts, tools, rent, utilities, insurance, advertising, software, supplies, other), and supplier, with a photo of the receipt and totals by category for any date range.
+- **Maintenance reminders:** set one from a vehicle or a finished work order (oil change, tire rotation, brake inspection, and more, with typical intervals filled in from today and the current mileage). Due reminders show on the Today screen and a Reminders page with call, text, and email buttons. Automatic reminder emails (once each, early morning) can be turned on in Settings.
+- **Nightly upkeep** also expires estimates past their valid-until date.
+- **Reports** for today, this week, this month, last month, this year, last year, or any range: money collected (by payment method and by day or month), invoiced labor, parts, fees, discounts and tax, average repair order, what's owed, and expenses. Clearly labeled as not tax or accounting advice.
+- **CSV export** of customers, vehicles, work orders, invoices, payments, expenses, parts, and service history, protected against spreadsheet formula injection.
+- **VIN lookup** through NHTSA's free vPIC service fills year, make, model, trim, engine, and transmission. Optional: if it's down, you type the details as before.
+
+## V1 feature list
+
+The spec's 20-step day (§55), and where each step lives:
+
+| Step | In the app |
+|---|---|
+| Receive a customer appointment request | Website booking form → Today screen and Calendar |
+| Create or find the customer, add their vehicle | One-step new customer + vehicle; search by name, phone, email, VIN, plate; VIN lookup |
+| Create a work order | From the request, the calendar, or a vehicle |
+| Perform an inspection, add photos | Work order → Start inspection; camera on every item |
+| Add parts and labor | Work order lines, parts list, shop rate and markup defaults |
+| Generate, send, and get approval on an estimate | Estimate from the lines or from inspection findings; customer link with signature |
+| Complete the repair | Status board, completion checklist |
+| Generate and send an invoice | One tap from the work order; email or text the link |
+| Accept online payment, record cash or check | Stripe Checkout on the invoice link; Record payment |
+| Generate a receipt | PDF, emailed automatically for online payments |
+| Store the repair history | Automatic service history and warranties per vehicle |
+| Schedule the customer's next service | Reminders from the finished work order |
+| View revenue and outstanding invoices | Today screen and Reports |
+
+Also included: public website (services, about, contact, map, reviews), customer links for estimates, approvals, inspection reports, and invoices, digital signatures with versioned signed PDFs, editable email templates, expenses, CSV export, audit log, nightly backups, and go-live checks.
+
+## Known limits
+
+Honest edges of V1, each documented rather than faked:
+- **Email is the only automated channel.** No SMS service is built in; the app opens your phone's own texting app with the message filled in.
+- **One login, no two-factor sign-in.** See [docs/SECURITY.md](docs/SECURITY.md).
+- **No customer accounts.** Customers use private links for each document instead.
+- **Receipts are photos.** PDF receipt files can't be attached to expenses.
+- **Stock is one count per part**, taken when a job is completed. No locations, purchase orders, or costing layers.
+- **Reports aren't accounting.** No profit-and-loss, sales-tax filing, or payroll.
+- **VIN lookup needs NHTSA's service** to be reachable; manual entry always works.
+- **CSV exports are built in one response** (Lambda allows 6 MB, roughly 30,000+ rows per file). Nightly database backups hold everything beyond that.
+- **Not yet run against live services from development:** Stripe's servers, AWS, and NHTSA were unreachable from the build environment, so those calls are covered by tests with stand-ins and by the go-live checks after your first deploy.
+
+## Roadmap
+
+In rough order of usefulness for a one-person shop (from spec §46):
+1. Two-factor sign-in, then employee accounts with roles (the `role` column and `require_role` check are already in place).
+2. SMS reminders and "car is ready" texts through a low-cost provider (templates and the email log are channel-agnostic).
+3. Customer login to see every vehicle's history and documents in one place.
+4. Labor time tracking and technician assignment on work orders.
+5. QuickBooks export or sync.
+6. Fleet customers (one account, many vehicles, monthly statements).
+7. Parts supplier catalogs and ordering, OBD scan imports, and AI-assisted inspection summaries, if they prove worth their cost.
 
 ### Electronic signatures: what this is and isn't
 The signing flow is designed as a strong electronic authorization record: who signed, what exact version they saw, the statement they agreed to, when, from which IP address and device, and a fingerprint of the document. It is **not legal advice and makes no claim about enforceability in any particular state.** The shop is responsible for wording the authorization statement and terms (Settings) appropriately for its jurisdiction, and may want a local attorney to review them.
@@ -124,7 +177,7 @@ uv run pytest                      # uses TEST_DATABASE_URL; the test database i
 uv run ruff check app tests migrations
 ```
 
-Tests run against real Postgres, not SQLite, so constraints, row locking, and numbering behave as they will in production. Covered: photos (re-encoding, location stripping, limits), inspections and their reports, service history and warranties, pricing and tax math, authentication and CSRF, customer/vehicle rules, appointments, the estimate → work order → invoice → payment workflow, overpayment and edit-after-payment protection, concurrent invoice numbering, customer links, signatures and document versions, PDFs, email, Stripe webhooks and refunds, go-live checks, the Lambda entry point, and API-wide access rules.
+Tests run against real Postgres, not SQLite, so constraints, row locking, and numbering behave as they will in production. Covered: parts and stock, expenses, reminders, nightly upkeep, reports, CSV export, VIN lookup, photos (re-encoding, location stripping, limits), inspections and their reports, service history and warranties, pricing and tax math, authentication and CSRF, customer/vehicle rules, appointments, the estimate → work order → invoice → payment workflow, overpayment and edit-after-payment protection, concurrent invoice numbering, customer links, signatures and document versions, PDFs, email, Stripe webhooks and refunds, go-live checks, the Lambda entry point, and API-wide access rules.
 
 Go-live checks against your local setup: `uv run python -m app.tasks doctor`.
 

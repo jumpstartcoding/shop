@@ -46,6 +46,8 @@ const NOTE_LINK: Record<string, string> = {
   invoices_overdue: "/admin/invoices?unpaid=1",
   messages: "/admin#messages",
   online_payments: "/admin/invoices",
+  reminders_due: "/admin/reminders",
+  low_stock: "/admin/parts?low=1",
 };
 
 const ENTITY_PATH: Record<string, string> = { estimate: "estimates", invoice: "invoices", work_order: "work-orders" };

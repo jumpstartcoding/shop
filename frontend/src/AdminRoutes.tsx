@@ -6,7 +6,11 @@ import { Calendar } from "./pages/Calendar";
 import { CustomerDetailPage, CustomerList, NewCustomer } from "./pages/Customers";
 import { Dashboard } from "./pages/Dashboard";
 import { EstimateList, EstimatePage, NewEstimate } from "./pages/Estimates";
+import { ExpensesPage } from "./pages/Expenses";
 import { InspectionPage } from "./pages/Inspection";
+import { PartsPage } from "./pages/Parts";
+import { RemindersPage } from "./pages/Reminders";
+import { ReportsPage } from "./pages/Reports";
 import { InvoiceList, InvoicePage, NewInvoice } from "./pages/Invoices";
 import { Login } from "./pages/Login";
 import { SettingsPage } from "./pages/Settings";
@@ -41,6 +45,10 @@ export default function AdminRoutes() {
         <Route path="invoices" element={<InvoiceList />} />
         <Route path="invoices/new" element={<NewInvoice />} />
         <Route path="invoices/:id" element={<InvoicePage />} />
+        <Route path="reminders" element={<RemindersPage />} />
+        <Route path="parts" element={<PartsPage />} />
+        <Route path="expenses" element={<ExpensesPage />} />
+        <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<p className="py-10 text-center">That page doesn't exist.</p>} />
       </Route>

@@ -85,6 +85,8 @@ class LineItemMixin(IdMixin):
     warranty_months: Mapped[int | None] = mapped_column(Integer)
     warranty_miles: Mapped[int | None] = mapped_column(Integer)
     warranty_notes: Mapped[str | None] = mapped_column(String(300))
+    # Set when the line came from the parts list.
+    part_id: Mapped[int | None] = mapped_column(ForeignKey("parts.id", ondelete="SET NULL"))
 
 
 class TotalsMixin:
@@ -136,6 +138,8 @@ class WorkOrderItem(LineItemMixin, Base):
     work_order_id: Mapped[int] = mapped_column(
         ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # How many came out of stock when the job was completed (put back if it's reopened).
+    stock_qty: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     work_order: Mapped[WorkOrder] = relationship(back_populates="items")
 
 

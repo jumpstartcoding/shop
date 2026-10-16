@@ -1,8 +1,8 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
 import { centsToInput, money, toCents } from "../lib/format";
-import type { LineItem, LineItemIn, LineKind, Totals } from "../lib/types";
+import type { LineItem, LineItemIn, LineKind, Part, Totals } from "../lib/types";
 import { Button, ErrorNote, Field, Modal, Sheet } from "./ui";
 
 const KIND_LABEL: Record<LineKind, string> = {
@@ -26,6 +26,7 @@ function toInput(li: LineItem): LineItemIn {
     warranty_months: li.warranty_months,
     warranty_miles: li.warranty_miles,
     warranty_notes: li.warranty_notes,
+    part_id: li.part_id,
   };
 }
 
@@ -57,6 +58,7 @@ export function LineItems({
   showCost?: boolean;
 }) {
   const [editing, setEditing] = useState<{ index: number | null; kind: LineKind } | null>(null);
+  const [picking, setPicking] = useState(false);
 
   const remove = useMutation({
     mutationFn: (id: number) => api.del(`${basePath}/items/${id}`),
@@ -105,7 +107,8 @@ export function LineItems({
       )}
 
       {!readOnly && (
-        <div className="grid grid-cols-2 gap-2 border-b border-line p-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 border-b border-line p-3 sm:grid-cols-5">
+          <Button className="col-span-2 sm:col-span-1" onClick={() => setPicking(true)}>From parts list</Button>
           {(["labor", "part", "fee", "discount"] as LineKind[]).map((k) => (
             <Button key={k} onClick={() => setEditing({ index: null, kind: k })}>
               Add {KIND_LABEL[k].toLowerCase()}
@@ -118,6 +121,7 @@ export function LineItems({
 
       <TotalsTable totals={totals} />
 
+      {picking && <PartPicker basePath={basePath} onClose={() => setPicking(false)} />}
       {editing && (
         <LineEditor
           basePath={basePath}
@@ -136,6 +140,82 @@ export function LineItems({
         />
       )}
     </Sheet>
+  );
+}
+
+/** Pick a part from the parts list: fills the line with its price, number, vendor, and
+ * warranty, and links it so stock comes out when the work order is completed. */
+function PartPicker({ basePath, onClose }: { basePath: string; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [chosen, setChosen] = useState<Part | null>(null);
+  const [qty, setQty] = useState("1");
+  const parts = useQuery({
+    queryKey: ["parts", q],
+    queryFn: () => api.get<Part[]>("/parts", { q: q.trim() || undefined, limit: 50 }),
+  });
+  const add = useMutation({
+    mutationFn: (p: Part) =>
+      api.post(`${basePath}/items`, {
+        kind: "part",
+        description: p.name,
+        quantity: String(Number(qty) || 1),
+        // No set price: send the cost so the shop's markup applies, as on the parts list.
+        unit_price_cents: p.price_from_markup ? null : p.price_cents,
+        unit_cost_cents: p.cost_cents,
+        part_number: p.part_number,
+        vendor_name: p.vendor_name,
+        warranty_months: p.warranty_months,
+        warranty_miles: p.warranty_miles,
+        warranty_notes: p.warranty_notes,
+        part_id: p.id,
+      } satisfies LineItemIn),
+    onSuccess: onClose,
+  });
+  return (
+    <Modal title="Add from parts list" onClose={onClose}>
+      {chosen ? (
+        <form onSubmit={(e) => { e.preventDefault(); add.mutate(chosen); }} className="space-y-4">
+          <p className="text-lg font-semibold">{chosen.name}</p>
+          <p className="text-steel-2">
+            {[chosen.part_number && `#${chosen.part_number}`, money(chosen.effective_price_cents) + " each", chosen.quantity !== null && `${Number(chosen.quantity)} in stock`].filter(Boolean).join(", ")}
+          </p>
+          <Field label="Quantity">{(p) => <input {...p} className="field num" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} />}</Field>
+          {chosen.quantity !== null && (
+            <p className="text-[15px] text-steel-2">Comes out of stock when this work order is completed (not for estimates or invoices).</p>
+          )}
+          <ErrorNote error={add.error} />
+          <div className="flex gap-2">
+            <Button type="submit" variant="primary" busy={add.isPending}>Add to this job</Button>
+            <Button type="button" variant="quiet" onClick={() => setChosen(null)}>Pick another</Button>
+          </div>
+        </form>
+      ) : (
+        <div className="space-y-3">
+          <Field label="Search parts">
+            {(p) => <input {...p} className="field" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, part number, or category" />}
+          </Field>
+          <ErrorNote error={parts.error} />
+          <ul className="max-h-[50dvh] overflow-y-auto">
+            {(parts.data ?? []).map((p) => (
+              <li key={p.id}>
+                <button type="button" onClick={() => setChosen(p)}
+                  className="flex min-h-14 w-full items-center gap-3 border-b border-line px-1 py-2 text-left hover:bg-concrete/60">
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-medium">{p.name}</span>
+                    <span className="block text-[15px] text-steel-2">{[p.part_number && `#${p.part_number}`, p.vendor_name].filter(Boolean).join(", ")}</span>
+                  </span>
+                  <span className="text-right">
+                    <span className="num block">{money(p.effective_price_cents)}</span>
+                    {p.quantity !== null && <span className={`block text-[14px] ${p.low_stock ? "font-semibold text-signal" : "text-steel-2"}`}>{Number(p.quantity)} in stock</span>}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {parts.data?.length === 0 && <p className="text-steel-2">No parts match. Add parts on the Parts page, or use “Add part” to type one in.</p>}
+        </div>
+      )}
+    </Modal>
   );
 }
 

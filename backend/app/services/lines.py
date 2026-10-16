@@ -21,6 +21,7 @@ _COPY_FIELDS = (
     "warranty_months",
     "warranty_miles",
     "warranty_notes",
+    "part_id",
 )
 
 
@@ -62,6 +63,7 @@ def build_line(model: type[LineItemMixin], data: LineItemIn, business: Business,
         warranty_months=data.warranty_months,
         warranty_miles=data.warranty_miles,
         warranty_notes=data.warranty_notes,
+        part_id=data.part_id,
     )
 
 

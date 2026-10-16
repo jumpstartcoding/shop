@@ -61,24 +61,54 @@ def create_admin(email: str, name: str, password: str) -> dict:
 
 
 def nightly() -> dict:
-    """Flip unpaid invoices past their due date to overdue. Later phases add reminders and
-    estimate expiry here."""
+    """Daily upkeep (EventBridge, early morning shop time):
+    - unpaid invoices past their due date become overdue;
+    - estimates still waiting on the customer past their valid-until date expire;
+    - due maintenance reminders are emailed, if the shop turned that on in Settings.
+    Each step commits on its own, so a failed email can't undo the status updates."""
     from sqlalchemy.orm import Session
 
+    from app.core import audit
+    from app.models import Estimate
+    from app.services import reminders
     from app.services.business import get_business, shop_today
     from app.services.workflow import settle_invoice_status
 
     with Session(get_engine()) as db:
         today = shop_today(get_business(db))
-        changed = 0
+        overdue = 0
         for inv in db.scalars(
             select(Invoice).where(Invoice.status.in_(("sent", "viewed")), Invoice.due_date < today)
         ):
             settle_invoice_status(inv, today)
-            changed += 1
+            overdue += 1
+        expired = 0
+        for est in db.scalars(
+            select(Estimate).where(
+                Estimate.status.in_(("sent", "viewed")), Estimate.expires_on < today
+            )
+        ):
+            est.status = "expired"
+            audit.record(
+                db,
+                actor="system",
+                action="estimate.expired",
+                entity_type="estimate",
+                entity_id=est.id,
+                details={"expires_on": str(est.expires_on)},
+            )
+            expired += 1
         db.commit()
-    log.info("nightly_done", invoices_overdue=changed)
-    return {"ok": True, "invoices_marked_overdue": changed}
+        reminder_result = reminders.nightly(db)
+        db.commit()
+    result = {
+        "ok": True,
+        "invoices_marked_overdue": overdue,
+        "estimates_expired": expired,
+        **reminder_result,
+    }
+    log.info("nightly_done", **result)
+    return result
 
 
 def run(event: dict) -> dict:

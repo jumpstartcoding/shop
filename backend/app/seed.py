@@ -13,7 +13,17 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.db import get_engine
-from app.models import Appointment, Customer, Service, User, Vehicle
+from app.models import (
+    Appointment,
+    Customer,
+    Expense,
+    MaintenanceReminder,
+    Part,
+    Service,
+    User,
+    Vehicle,
+    Vendor,
+)
 from app.schemas.common import digits_only
 from app.schemas.documents import (
     DecisionIn,
@@ -182,6 +192,72 @@ def seed_demo() -> dict:
             db.add(user)
         db.flush()
 
+        # --- Suppliers and a small parts list (stock comes out when jobs are completed)
+        supply = Vendor(
+            name="Sample Parts Supply",
+            phone="(555) 010-0190",
+            account_number="DEMO-ACCT-001",
+            notes="PLACEHOLDER vendor. Delivers twice a day.",
+        )
+        tires = Vendor(name="Sample Tire Co.", phone="(555) 010-0191")
+        db.add_all([supply, tires])
+        db.flush()
+        pad_part = Part(
+            name="Front brake pad set (ceramic)",
+            part_number="DEMO-PAD-1001",
+            category="Brakes",
+            vendor_id=supply.id,
+            cost_cents=5400,
+            price_cents=8911,
+            quantity=Decimal("4"),
+            reorder_at=Decimal("2"),
+            warranty_months=12,
+            warranty_miles=12000,
+        )
+        rotor_part = Part(
+            name="Front brake rotor",
+            part_number="DEMO-ROT-2002",
+            category="Brakes",
+            vendor_id=supply.id,
+            cost_cents=8200,
+            price_cents=13600,
+            quantity=Decimal("4"),
+            reorder_at=Decimal("2"),
+            warranty_months=12,
+            warranty_miles=12000,
+        )
+        db.add_all(
+            [
+                pad_part,
+                rotor_part,
+                Part(
+                    name="Oil filter",
+                    part_number="DEMO-OF-3003",
+                    category="Maintenance",
+                    vendor_id=supply.id,
+                    cost_cents=450,
+                    quantity=Decimal("12"),
+                    reorder_at=Decimal("4"),
+                ),
+                Part(
+                    name="5W-30 synthetic oil (quart)",
+                    category="Fluids",
+                    vendor_id=supply.id,
+                    cost_cents=650,
+                    price_cents=1100,
+                    quantity=Decimal("30"),
+                    reorder_at=Decimal("10"),
+                ),
+                Part(
+                    name="Wiper blade, 22 in",
+                    category="Accessories",
+                    cost_cents=900,
+                    price_cents=1800,
+                ),
+            ]
+        )
+        db.flush()
+
         # --- The full workflow: John Smith's 2018 Accord, front brakes, $650.00
         john = _customer(
             db,
@@ -226,6 +302,7 @@ def seed_demo() -> dict:
                         kind="part",
                         description="Front brake pad set (ceramic)",
                         part_number="DEMO-PAD-1001",
+                        part_id=pad_part.id,
                         unit_price_cents=8911,
                         unit_cost_cents=5400,
                         vendor_name="Sample Parts Supply",
@@ -237,6 +314,7 @@ def seed_demo() -> dict:
                         description="Front brake rotor",
                         quantity=Decimal("2"),
                         part_number="DEMO-ROT-2002",
+                        part_id=rotor_part.id,
                         unit_price_cents=13600,
                         unit_cost_cents=8200,
                         vendor_name="Sample Parts Supply",
@@ -486,6 +564,58 @@ def seed_demo() -> dict:
                 requested_service="Diagnostics",
                 source="admin",
             )
+        )
+        # --- Maintenance reminders: the Accord's next oil change, and the RAV4 due now
+        today = date.today()
+        db.add_all(
+            [
+                MaintenanceReminder(
+                    vehicle_id=accord.id,
+                    customer_id=john.id,
+                    kind="oil_change",
+                    title="Oil change",
+                    due_date=today + timedelta(days=150),
+                    due_mileage=66252,
+                    status="open",
+                ),
+                MaintenanceReminder(
+                    vehicle_id=rav.id,
+                    customer_id=maria.id,
+                    kind="tire_rotation",
+                    title="Tire rotation",
+                    due_date=today + timedelta(days=5),
+                    status="open",
+                ),
+            ]
+        )
+        # --- A few expenses this month
+        first = today.replace(day=1)
+        db.add_all(
+            [
+                Expense(
+                    expense_date=first,
+                    category="rent",
+                    amount_cents=150000,
+                    vendor_name="PLACEHOLDER landlord",
+                    description="Shop rent",
+                    created_by_user_id=user.id,
+                ),
+                Expense(
+                    expense_date=today,
+                    category="parts",
+                    amount_cents=27200,
+                    vendor_id=supply.id,
+                    description="Brake parts restock",
+                    created_by_user_id=user.id,
+                ),
+                Expense(
+                    expense_date=today,
+                    category="supplies",
+                    amount_cents=4599,
+                    description="Shop towels, brake cleaner",
+                    created_by_user_id=user.id,
+                ),
+            ]
         )
         db.commit()
         return {

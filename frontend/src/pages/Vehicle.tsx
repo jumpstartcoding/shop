@@ -6,7 +6,8 @@ import { Button, Dl, Empty, ErrorNote, Field, InternalNote, LinkButton, Loading,
 import { VehicleFields, emptyVehicle, vehiclePayload } from "../components/VehicleFields";
 import { api } from "../lib/api";
 import { date, money, toCents } from "../lib/format";
-import type { CustomerDetail, History, InspectionListItem, Photo, ServiceHistory, ServiceRecord, Vehicle } from "../lib/types";
+import type { CustomerDetail, History, InspectionListItem, Photo, Reminder, ServiceHistory, ServiceRecord, Vehicle } from "../lib/types";
+import { ReminderModal, ReminderRow } from "./Reminders";
 import { HistorySheets } from "./Customers";
 
 export function VehiclePage() {
@@ -54,6 +55,7 @@ export function VehiclePage() {
         />
         {v.internal_notes && <div className="px-4 pb-4"><InternalNote>{v.internal_notes}</InternalNote></div>}
       </Sheet>
+      <RemindersSheet vehicle={v} />
       <ServiceHistorySheet vehicle={v} />
       <InspectionsSheet vehicleId={v.id} />
       <VehiclePhotos vehicleId={v.id} />
@@ -256,6 +258,25 @@ function VehiclePhotos({ vehicleId }: { vehicleId: number }) {
           </div>
         )}
       </div>
+    </Sheet>
+  );
+}
+
+function RemindersSheet({ vehicle }: { vehicle: Vehicle }) {
+  const [adding, setAdding] = useState(false);
+  const { data } = useQuery({
+    queryKey: ["vehicle-reminders", vehicle.id],
+    queryFn: () => api.get<Reminder[]>(`/vehicles/${vehicle.id}/reminders`),
+  });
+  const open = (data ?? []).filter((r) => r.status === "open");
+  return (
+    <Sheet title="Service reminders" action={<Button variant="quiet" onClick={() => setAdding(true)}>Add reminder</Button>}>
+      {open.length === 0 ? (
+        <Empty>No upcoming reminders. Add the next oil change or inspection so you can remind the customer.</Empty>
+      ) : (
+        <ul>{open.map((r) => <ReminderRow key={r.id} r={r} />)}</ul>
+      )}
+      {adding && <ReminderModal vehicleId={vehicle.id} mileage={vehicle.mileage} onClose={() => setAdding(false)} />}
     </Sheet>
   );
 }

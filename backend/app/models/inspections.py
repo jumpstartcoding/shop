@@ -34,7 +34,7 @@ from app.models.customers import Customer, Vehicle
 
 INSPECTION_STATUSES = ("in_progress", "completed")
 ITEM_STATUSES = ("good", "monitor", "attention", "urgent")
-PHOTO_ENTITIES = ("inspection_item", "work_order", "estimate", "vehicle", "customer")
+PHOTO_ENTITIES = ("inspection_item", "work_order", "estimate", "vehicle", "customer", "expense")
 SERVICE_SOURCES = ("work_order", "manual")
 
 # The categories spec §6 lists, in the order a mechanic walks around a car.
@@ -121,8 +121,9 @@ class Photo(IdMixin, Base):
     entity_type: Mapped[str] = mapped_column(String(20), nullable=False)
     entity_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # Denormalized so a vehicle's or customer's photos can be listed in one query.
-    customer_id: Mapped[int] = mapped_column(
-        ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True
+    # Empty for shop photos such as expense receipts.
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="RESTRICT"), index=True
     )
     vehicle_id: Mapped[int | None] = mapped_column(
         ForeignKey("vehicles.id", ondelete="RESTRICT"), index=True

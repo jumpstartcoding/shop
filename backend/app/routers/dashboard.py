@@ -14,12 +14,14 @@ from app.models import (
     Estimate,
     Inquiry,
     Invoice,
+    Part,
     Payment,
     User,
     Vehicle,
     WorkOrder,
 )
 from app.schemas.common import digits_only
+from app.services import reminders
 from app.services.business import get_business, shop_now
 from app.services.serialize import work_order_card
 from app.services.workflow import TERMINAL_WO
@@ -212,6 +214,34 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(require_user)):
                 "count": len(online_today),
                 "message": f"{len(online_today)} online payment{'s' if len(online_today) != 1 else ''}"
                 f" received in the last day, ${total / 100:,.2f} total.",
+            }
+        )
+    due = reminders.due_list(db)
+    if due:
+        notifications.append(
+            {
+                "kind": "reminders_due",
+                "count": len(due),
+                "message": f"{len(due)} customer{'s' if len(due) != 1 else ''} due for "
+                "maintenance. Remind them.",
+            }
+        )
+    low = db.scalar(
+        select(func.count())
+        .select_from(Part)
+        .where(
+            Part.archived_at.is_(None),
+            Part.quantity.is_not(None),
+            Part.reorder_at.is_not(None),
+            Part.quantity <= Part.reorder_at,
+        )
+    )
+    if low:
+        notifications.append(
+            {
+                "kind": "low_stock",
+                "count": low,
+                "message": f"{low} part{'s are' if low != 1 else ' is'} at or below the reorder level.",
             }
         )
     needs_refund = [

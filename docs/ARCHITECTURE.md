@@ -89,9 +89,9 @@ All money is stored as **integer cents**. Quantities and hours are `NUMERIC(10,2
 | `inspections`, `inspection_items` | 4 | Digital inspection (Good / Monitor / Needs Attention / Urgent) with recommended repair and estimated cost. |
 | `photos` | 4 | S3 keys (full + thumbnail) + polymorphic owner (`inspection_item`, `work_order`, `estimate`, `vehicle`, `customer`), customer-visible flag, soft delete (a photo on a signed document is never erased). |
 | `service_records` | 4 | Written when a work order completes (hidden if it's reopened, rewritten on re-completion), linked to its invoice, plus manual entries for work done elsewhere. Warranties are computed from the warranty fields on its lines. |
-| `parts`, `vendors` | 5 | Simple catalog and vendor list; optional stock decrement. |
+| `parts`, `vendors` | 5 | Simple catalog and supplier list; optional stock count, taken when a work order using the part is completed and returned if it is reopened. Lines keep a `part_id`. |
 | `expenses` | 5 | Expense log with receipt photo. |
-| `maintenance_reminders` | 5 | Due date and/or mileage per vehicle; nightly job emails due ones. |
+| `maintenance_reminders` | 5 | Due date and/or mileage per vehicle; due ones show on the dashboard, and the nightly job emails each once when the shop turns that on. |
 
 Notes on the spec's suggested list: `notifications` is **computed** from live data (new requests, estimates awaiting approval, overdue invoices, reminders due) rather than stored, so it can't drift out of sync. `documents` is covered by `document_versions`. `estimate_approvals` is generalized into `authorizations` so estimates, additional-repair approvals, inspection reports, and terms all use one signing flow.
 
@@ -246,7 +246,7 @@ Each phase ships working, tested functionality. Nothing is stubbed to look finis
 | **2** Customer links, PDFs, email, signatures (done) | Access tokens, customer estimate/invoice pages, approve/decline/question, additional-repair approvals, signature capture, document versions and locking, WeasyPrint PDFs, SES email + editable templates, public website + booking form. |
 | **3** Online payments (done) | Stripe Checkout, webhook handling (heavily tested), receipts, refunds. |
 | **4** Inspections and photos (done) | Digital inspection on the work order, photos (phone-side shrink, server re-encode), customer inspection report with traffic lights and photos (signable acknowledgement), findings and photos on estimates, estimate from findings, service history with warranties. |
-| **5** Shop admin | Parts, vendors, expenses, maintenance reminders + nightly job, reports with date filters, CSV export, VIN decode via the free NHTSA vPIC API (optional, app works without it). |
+| **5** Shop admin (done) | Parts list with simple stock (taken on completion), suppliers, expenses with receipt photos, maintenance reminders with optional nightly emails, estimate expiry, reports with date filters (collected vs invoiced), CSV export with formula-injection guard, optional VIN decode via NHTSA vPIC. |
 | **6** Production hardening (done, ahead of 4 and 5) | CloudFormation templates, deploy and backup workflows, Lambda image + emulator smoke test, go-live checks, security review against §52, DEPLOYMENT/SECURITY/BACKUPS docs. |
 
 ## 11. Not in V1 (by design)

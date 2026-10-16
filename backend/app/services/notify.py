@@ -77,8 +77,8 @@ DEFAULTS: dict[str, tuple[str, str, str]] = {
     "service_reminder": (
         "Service reminder",
         "Your {vehicle} may be due for service",
-        "Hi {customer_first_name},\n\nYour {vehicle} may be due for {service}.\n\nBook online or "
-        "call us at {shop_phone}.\n\n{shop_name}",
+        "Hi {customer_first_name},\n\nYour {vehicle} may be due for {service}.\n\nBook a time "
+        "online:\n{link}\n\nor call us at {shop_phone}.\n\n{shop_name}",
     ),
 }
 

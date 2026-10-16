@@ -12,6 +12,7 @@ from app.core.security import tokens_match
 from app.db import get_engine
 from app.logging_setup import configure_logging
 from app.routers import (
+    admin,
     appointments,
     auth,
     customers,
@@ -24,6 +25,8 @@ from app.routers import (
     payments,
     photos,
     public,
+    reminders,
+    reports,
     settings,
     work_orders,
 )
@@ -104,6 +107,9 @@ def create_app() -> FastAPI:
         photos.router,
         inspections.router,
         history.router,
+        admin.router,
+        reminders.router,
+        reports.router,
     ):
         app.include_router(r, prefix=API_PREFIX)
 

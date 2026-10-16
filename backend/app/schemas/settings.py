@@ -81,6 +81,8 @@ class BusinessUpdate(BaseModel):
     invoice_footer: ShortText(2000) = None
     terms_text: ShortText(5000) = None
     notify_by_email: bool | None = None
+    reminder_emails: bool | None = None
+    reminder_lead_days: Annotated[int, Field(ge=0, le=90)] | None = None
     testimonials: list[Testimonial] | None = Field(default=None, max_length=12)
     online_payments_enabled: bool | None = None
     reviews_url: ShortText(300) = None
@@ -137,6 +139,8 @@ class BusinessOut(ORMModel):
     invoice_footer: str | None
     terms_text: str | None
     notify_by_email: bool
+    reminder_emails: bool
+    reminder_lead_days: int
     logo_key: str | None
     testimonials: list
     reviews_url: str | None

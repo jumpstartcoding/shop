@@ -125,7 +125,7 @@ def replace_items(
 ):
     est = workflow.get_or_404(db, Estimate, est_id, "Estimate", lock=True)
     workflow.ensure_estimate_editable(est)
-    workflow.replace_lines(est, EstimateItem, items, get_business(db))
+    workflow.replace_lines(est, EstimateItem, items, get_business(db), db)
     db.flush()
     audit.record(
         db,
@@ -144,7 +144,7 @@ def add_item(
 ):
     est = workflow.get_or_404(db, Estimate, est_id, "Estimate", lock=True)
     workflow.ensure_estimate_editable(est)
-    line = workflow.append_line(est, EstimateItem, item, get_business(db))
+    line = workflow.append_line(est, EstimateItem, item, get_business(db), db)
     db.flush()
     audit.record(
         db,
