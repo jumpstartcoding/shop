@@ -10,6 +10,7 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 
 **To put it online, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).**
 
+<<<<<<< Updated upstream
 | Phase | Scope | State |
 |---|---|---|
 | 1a | Backend core: auth, customers, vehicles, appointments, work orders, estimates, invoices, manual payments, settings, services catalog, dashboard, search, audit log | **Done** (54 tests passing) |
@@ -19,8 +20,20 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 | 6 | Production: AWS templates, deploy and backup pipelines, go-live checks, security review | **Done** (128 backend tests) |
 | 4 | Inspections, photos, service history | **Done** (142 backend tests) |
 | 5 | Parts, vendors, expenses, reminders, reports, CSV export, VIN decode | Planned |
+=======
+| Phase | Scope                                                                                                                                                              | State                       |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| 1a    | Backend core: auth, customers, vehicles, appointments, work orders, estimates, invoices, manual payments, settings, services catalog, dashboard, search, audit log | **Done** (54 tests passing) |
+| 1b    | Mobile-first admin UI (React)                                                                                                                                      | **Done**                    |
+| 2     | Customer links, PDFs, email, digital signatures, public website and booking                                                                                        | **Done** (81 backend tests) |
+| 3     | Stripe online payments, receipts, refunds                                                                                                                          | Planned                     |
+| 4     | Inspections, photos, service history                                                                                                                               | Planned                     |
+| 5     | Parts, vendors, expenses, reminders, reports, CSV export, VIN decode                                                                                               | Planned                     |
+| 6     | AWS deployment template, backups, security review, final docs                                                                                                      | Planned                     |
+>>>>>>> Stashed changes
 
 ### What Phase 1a does today
+
 - **Sign-in:** one owner account, Argon2id passwords, server-side sessions in HttpOnly cookies, CSRF tokens, temporary lockout after repeated failures.
 - **Customers and vehicles:** add a customer and their vehicle in one step; search by name, phone (any format), email, VIN, plate, or make/model; archive and restore; VIN normalization and duplicate detection; full per-customer and per-vehicle history.
 - **Appointments:** calendar feed by date range, reschedule by changing times, statuses from requested to no-show.
@@ -32,6 +45,7 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 - **Audit log:** every change to customers, documents, payments, and settings, with who, when, and what changed. Internal note contents are not copied into the log.
 
 ### What Phase 1b adds
+
 A mobile-first admin app at `/admin`, built for a phone in one hand in the bay and a laptop at the counter:
 
 - **Today:** what needs attention, money in this week/month/year, what's owed, vehicles in the shop, today's bookings, requests, estimates out, unpaid invoices.
@@ -44,6 +58,7 @@ A mobile-first admin app at `/admin`, built for a phone in one hand in the bay a
 - Global search from every screen; 48px+ touch targets; keyboard focus visible; works without horizontal scrolling at 390px wide.
 
 ### What Phase 2 adds
+
 - **Public website** at `/`: home page with a live open/closed sign in the shop's time zone, services (editable in Settings), about, contact form, map and directions, and online booking. Reviews show only when the shop adds real ones. Booking and contact forms have a hidden spam trap and a per-connection hourly limit.
 - **Customer links** (`/d/...`): estimates, repair authorizations, and invoices open on the customer's phone with no account. Each link is a 256-bit random token stored only as a hash, works for one document, expires, and stops working when a newer version is sent.
 - **Signatures:** customers check the authorization statement, then draw a signature with a finger (or type their name, if the shop allows it), or decline with a reason, or ask a question. The shop can also record a phone or in-person approval; it's stored the same way and marked as recorded by the shop.
@@ -80,6 +95,7 @@ Setup, test cards, and the webhook events to register are in [docs/PAYMENTS.md](
 What it does **not** do yet: parts, vendors, expenses, reminders, reports, and CSV export (Phase 5).
 
 ### Electronic signatures: what this is and isn't
+
 The signing flow is designed as a strong electronic authorization record: who signed, what exact version they saw, the statement they agreed to, when, from which IP address and device, and a fingerprint of the document. It is **not legal advice and makes no claim about enforceability in any particular state.** The shop is responsible for wording the authorization statement and terms (Settings) appropriately for its jurisdiction, and may want a local attorney to review them.
 
 ## Local development
@@ -87,7 +103,7 @@ The signing flow is designed as a strong electronic authorization record: who si
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Postgres 14+ (`brew install postgresql@16` on a Mac).
 
 ```bash
-cd backend
+cd backendbrew
 cp .env.example .env               # adjust DATABASE_URL if needed
 createdb shop && createdb shop_test
 uv sync
@@ -102,7 +118,7 @@ PDFs need WeasyPrint's system libraries. On a Mac: `brew install pango`. On Debi
 
 In a second terminal, start the admin app (Node 20+):
 
-```bash
+````bash
 cd frontend
 npm install
 npm run dev            # http://localhost:5173/admin, proxies /api to :8000
@@ -114,7 +130,7 @@ To create the real owner account instead:
 
 ```bash
 uv run python -m app.tasks create-admin --email you@yourshop.com --name "Your Name"
-```
+````
 
 ### Tests
 
@@ -163,6 +179,7 @@ docs/            ARCHITECTURE, DEPLOYMENT, BACKUPS, SECURITY, PAYMENTS
 
 Assumes one shop: a few hundred customers, about 100 work orders a month, a few thousand page views, about 300 emails a month, and a few GB of photos. Prices checked October 2026; confirm before launch.
 
+<<<<<<< Updated upstream
 | Item | Expected monthly cost |
 |---|---|
 | Hosting: AWS Lambda + CloudFront (incl. Functions), logs, alarms, nightly schedule | $0 (inside always-free tiers) |
@@ -175,6 +192,20 @@ Assumes one shop: a few hundred customers, about 100 work orders a month, a few 
 | **Infrastructure total** | **about $0.75–$1.30** |
 | Domain | about $12–15 per year |
 | **Payment processing (Stripe)** | **2.9% + 30¢ per online card payment**; non-US cards add 1.5%; $15 per dispute |
+=======
+| Item                                            | Expected monthly cost                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| Hosting: AWS Lambda + Function URL + CloudFront | $0 (inside always-free tiers)                                                  |
+| Database: Neon Postgres free plan               | $0 (1 GB storage, 100 compute-hours, scales to zero)                           |
+| Storage: S3 for site, photos, PDFs, backups     | $0.10–$0.50                                                                    |
+| Container image (ECR)                           | ~$0.05                                                                         |
+| Email: Amazon SES                               | ~$0.03 ($0.10 per 1,000 emails)                                                |
+| Backups: nightly dump via GitHub Actions to S3  | ~$0.01                                                                         |
+| DNS: Route 53 hosted zone (optional)            | $0.50                                                                          |
+| **Infrastructure total**                        | **about $0.60–$1.10**                                                          |
+| Domain                                          | about $12–15 per year                                                          |
+| **Payment processing (Stripe)**                 | **2.9% + 30¢ per online card payment**; non-US cards add 1.5%; $15 per dispute |
+>>>>>>> Stashed changes
 
 Payment processing is by far the largest cost. On $10,000 a month of online card payments, Stripe takes roughly $290 plus 30¢ per payment. Cash and checks recorded by hand cost nothing. The first infrastructure cost likely to appear is outgrowing Neon's free plan, which moves to usage-based billing.
 
