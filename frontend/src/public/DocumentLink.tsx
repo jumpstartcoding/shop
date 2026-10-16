@@ -11,20 +11,28 @@ type Item = {
   kind: string; kind_label: string; description: string; quantity: string; unit_price_cents: number;
   line_total_cents: number; part_number: string | null; warranty: string | null;
 };
+type SnapPhoto = { id: number; caption: string | null; width: number; height: number };
+type Finding = {
+  category: string; name: string; status: string; color: "red" | "yellow" | "green"; label: string;
+  notes: string | null; recommendation: string | null; estimated_cost_cents: number | null; photos: SnapPhoto[];
+};
 type Doc = {
-  doc_type: "estimate" | "work_order" | "invoice";
+  doc_type: "estimate" | "work_order" | "invoice" | "inspection";
   title: string; number: string; version: number | null; date: string; expires_on?: string; due_date?: string;
   business: { name: string; phone: string | null; email: string | null; address: string[] };
   customer: { name: string };
   vehicle: { description: string; vin: string | null; plate: string | null; mileage: number | null };
-  concern: string | null; notes: string | null; items: Item[];
-  totals: { tax_rate: string; labor_cents: number; parts_cents: number; fees_cents: number; discount_cents: number; taxable_cents: number; tax_cents: number; total_cents: number };
+  concern: string | null; notes: string | null; items?: Item[];
+  findings?: Finding[]; counts?: { red: number; yellow: number; green: number }; estimated_total_cents?: number;
+  photos?: SnapPhoto[];
+  inspection?: { number: string; summary: string | null; counts: { red: number; yellow: number; green: number }; findings: Finding[] } | null;
+  totals?: { tax_rate: string; labor_cents: number; parts_cents: number; fees_cents: number; discount_cents: number; taxable_cents: number; tax_cents: number; total_cents: number };
   authorization_statement?: string; terms?: string | null; footer?: string | null;
   amount_paid_cents?: number; balance_cents?: number;
   payments?: { date: string; method: string; amount_cents: number; reference: string | null }[];
 };
 type View = {
-  purpose: "estimate" | "work_order" | "invoice";
+  purpose: "estimate" | "work_order" | "invoice" | "inspection";
   shop: { name: string; phone: string | null; email: string | null };
   document: Doc;
   state: {
@@ -126,7 +134,11 @@ export function DocumentLink() {
             </p>
           </div>
           {d.concern && <p className="border-b border-line px-4 py-3">You told us: “{d.concern}”</p>}
-          <ul>
+          {d.doc_type === "inspection" && d.notes && (
+            <p className="border-b border-line bg-concrete/50 px-4 py-3 text-lg whitespace-pre-wrap">{d.notes}</p>
+          )}
+          {d.findings && <InspectionFindings findings={d.findings} token={token!} />}
+          {d.items && <ul>
             {d.items.map((li, i) => (
               <li key={i} className="flex items-start gap-3 border-b border-line px-4 py-3">
                 <div className="min-w-0 flex-1">
@@ -141,11 +153,25 @@ export function DocumentLink() {
                 <p className="num text-lg">{li.kind === "discount" ? "−" : ""}{money(li.line_total_cents)}</p>
               </li>
             ))}
-          </ul>
-          <TotalsTable totals={d.totals} />
+          </ul>}
+          {d.totals && <TotalsTable totals={d.totals} />}
         </section>
 
-        {d.notes && (
+        {d.inspection && d.inspection.findings.length > 0 && (
+          <section className="rounded-lg border border-line bg-sheet">
+            <h2 className="border-b border-line px-4 py-3 font-display text-2xl font-semibold">What we found</h2>
+            <InspectionFindings findings={d.inspection.findings} token={token!} />
+          </section>
+        )}
+
+        {d.photos && d.photos.length > 0 && (
+          <section className="rounded-lg border border-line bg-sheet px-4 py-3">
+            <h2 className="mb-2 font-display text-2xl font-semibold">Photos</h2>
+            <PhotoGrid photos={d.photos} token={token!} large />
+          </section>
+        )}
+
+        {d.notes && d.doc_type !== "inspection" && (
           <section className="rounded-lg border border-line bg-sheet px-4 py-3">
             <p className="text-[15px] text-steel-2">Notes from the shop</p>
             <p className="whitespace-pre-wrap">{d.notes}</p>
@@ -166,10 +192,11 @@ export function DocumentLink() {
 
 function DecisionStatus({ data, pdf }: { data: View; pdf: string }) {
   const s = data.state;
+  const inspection = data.purpose === "inspection";
   if (s.decision === "approved") {
     return (
       <div role="status" className="rounded-lg border-l-[6px] border-go bg-go-wash px-4 py-3">
-        <p className="font-display text-2xl font-semibold text-go">Approved</p>
+        <p className="font-display text-2xl font-semibold text-go">{inspection ? "Received" : "Approved"}</p>
         <p>Signed by {s.signer_name} on {dateTime(s.signed_at)}. Thank you.</p>
         <a href={pdf} target="_blank" rel="noopener" className="mt-1 inline-block min-h-11 content-center font-semibold underline underline-offset-4">Your signed copy</a>
       </div>
@@ -190,12 +217,95 @@ function DecisionStatus({ data, pdf }: { data: View; pdf: string }) {
       </div>
     );
   }
+  if (inspection) {
+    const c = data.document.counts ?? { red: 0, yellow: 0, green: 0 };
+    return (
+      <div className="rounded-lg bg-steel px-4 py-4 text-white">
+        <ul className="grid grid-cols-3 gap-2 text-center">
+          <li><span className="num block text-4xl font-bold text-[#ff8a80]">{c.red}</span>Need attention</li>
+          <li><span className="num block text-4xl font-bold text-safety">{c.yellow}</span>Monitor</li>
+          <li><span className="num block text-4xl font-bold text-[#8fd6a8]">{c.green}</span>Good</li>
+        </ul>
+        <p className="mt-3 text-white/85">Red items need attention soon; yellow ones are worth watching. Tap a photo to see it full size.</p>
+      </div>
+    );
+  }
   return (
     <div className="rounded-lg bg-steel px-4 py-4 text-white">
       <p className="text-white/80">Estimated total</p>
-      <p className="num text-5xl font-bold text-safety">{money(data.document.totals.total_cents)}</p>
+      <p className="num text-5xl font-bold text-safety">{money(data.document.totals?.total_cents)}</p>
       <p className="mt-1 text-white/80">Review the work below, then approve or decline at the bottom.</p>
     </div>
+  );
+}
+
+const LIGHT = { red: "bg-signal", yellow: "bg-safety-deep", green: "bg-go" } as const;
+const FLAG = { red: "bg-signal text-white", yellow: "bg-safety text-steel", green: "bg-go text-white" } as const;
+
+function InspectionFindings({ findings, token }: { findings: Finding[]; token: string }) {
+  const flagged = findings.filter((f) => f.color !== "green");
+  const good = findings.filter((f) => f.color === "green");
+  return (
+    <div>
+      <ul>
+        {flagged.map((f, i) => (
+          <li key={i} className="border-b border-line px-4 py-3">
+            <div className="flex items-start gap-3">
+              <span aria-hidden="true" className={`mt-1.5 inline-block h-4 w-4 shrink-0 rounded-full ${LIGHT[f.color]}`} />
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-semibold">
+                  {f.name} <span className={`ml-1 whitespace-nowrap rounded px-1.5 py-0.5 align-middle text-[14px] font-semibold ${FLAG[f.color]}`}>{f.label}</span>
+                </p>
+                {f.notes && <p className="whitespace-pre-wrap">{f.notes}</p>}
+                {f.recommendation && (
+                  <p className="mt-1">
+                    <span className="text-steel-2">We recommend: </span>{f.recommendation}
+                    {f.estimated_cost_cents ? <span className="num ml-2 font-semibold">about {money(f.estimated_cost_cents)}</span> : null}
+                  </p>
+                )}
+                {f.photos.length > 0 && <div className="mt-2"><PhotoGrid photos={f.photos} token={token} /></div>}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {good.length > 0 && (
+        <details className="px-4 py-3">
+          <summary className="min-h-11 cursor-pointer content-center font-semibold">
+            <span aria-hidden="true" className="mr-2 inline-block h-3 w-3 rounded-full bg-go" />
+            {good.length} item{good.length === 1 ? "" : "s"} checked and good
+          </summary>
+          <ul className="mt-1 space-y-2">
+            {good.map((f, i) => (
+              <li key={i}>
+                {f.name}{f.notes && <span className="text-steel-2">: {f.notes}</span>}
+                {f.photos.length > 0 && <div className="mt-1"><PhotoGrid photos={f.photos} token={token} /></div>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function PhotoGrid({ photos, token, large }: { photos: SnapPhoto[]; token: string; large?: boolean }) {
+  return (
+    <ul className="flex flex-wrap gap-2">
+      {photos.map((p) => (
+        <li key={p.id} className={large ? "w-[calc(50%-0.25rem)] sm:w-48" : ""}>
+          <a href={`/api/public/links/${token}/photos/${p.id}`} target="_blank" rel="noopener" className="block">
+            <img
+              src={`/api/public/links/${token}/photos/${p.id}?size=thumb`}
+              alt={p.caption ?? "Photo from the shop"}
+              loading="lazy"
+              className={`rounded-md border border-line bg-concrete object-cover ${large ? "aspect-[4/3] w-full" : "h-28 w-28"}`}
+            />
+          </a>
+          {p.caption && <p className={`text-[15px] text-steel-2 ${large ? "" : "max-w-28"}`}>{p.caption}</p>}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -238,7 +348,7 @@ function InvoiceSummary({ data, token, hidePay }: { data: View; token: string; h
   return (
     <div className={`rounded-lg px-4 py-4 ${bal > 0 ? "bg-steel text-white" : "border-l-[6px] border-go bg-go-wash"}`}>
       <p className={bal > 0 ? "text-white/80" : "text-go"}>{bal > 0 ? "Balance due" : "Paid in full"}</p>
-      <p className={`num text-5xl font-bold ${bal > 0 ? "text-safety" : "text-go"}`}>{money(bal > 0 ? bal : data.document.totals.total_cents)}</p>
+      <p className={`num text-5xl font-bold ${bal > 0 ? "text-safety" : "text-go"}`}>{money(bal > 0 ? bal : data.document.totals?.total_cents ?? 0)}</p>
       {bal > 0 && data.document.due_date && <p className="text-white/80">Due {date(data.document.due_date)}</p>}
       {canPay && <PayOnline token={token} balance={bal} min={data.state.min_online_cents ?? 100} receipts={data.receipts?.length ?? 0} />}
       {bal > 0 && data.shop.phone && (
@@ -324,6 +434,7 @@ function Respond({ data, token }: { data: View; token: string }) {
   const [note, setNote] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const allowTyped = data.state.allow_typed_signature;
+  const inspection = data.purpose === "inspection";
 
   const send = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.post(`/public/links/${token}/respond`, body),
@@ -333,7 +444,7 @@ function Respond({ data, token }: { data: View; token: string }) {
   const approve = (e: FormEvent) => {
     e.preventDefault();
     setLocalError(null);
-    if (!agree) return setLocalError("Check the box to confirm you authorize the work.");
+    if (!agree) return setLocalError(inspection ? "Check the box to confirm." : "Check the box to confirm you authorize the work.");
     const image = typed ? null : pad.current?.toDataUrl();
     if (!typed && !image) return setLocalError("Sign in the box with your finger or mouse.");
     if (typed && typedName.trim().length < 2) return setLocalError("Type your full name to sign.");
@@ -360,7 +471,7 @@ function Respond({ data, token }: { data: View; token: string }) {
 
   return (
     <form onSubmit={approve} className="space-y-4 rounded-lg border-2 border-steel bg-sheet p-4">
-      <h2 className="font-display text-3xl font-bold">Approve and sign</h2>
+      <h2 className="font-display text-3xl font-bold">{inspection ? "Sign to confirm you received this report" : "Approve and sign"}</h2>
       <ErrorNote error={localError ?? send.error} />
       <label className="flex items-start gap-3 rounded-md bg-concrete p-3">
         <input type="checkbox" className="mt-1 h-6 w-6 shrink-0" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
@@ -386,9 +497,9 @@ function Respond({ data, token }: { data: View; token: string }) {
       </p>
       <div className="flex flex-wrap gap-2">
         <Button type="submit" variant="primary" className="flex-1 text-lg" busy={send.isPending}>
-          Approve {money(data.document.totals.total_cents)}
+          {inspection ? "Sign" : `Approve ${money(data.document.totals?.total_cents)}`}
         </Button>
-        <Button type="button" variant="quiet" onClick={() => setDeclining(true)}>Decline</Button>
+        {!inspection && <Button type="button" variant="quiet" onClick={() => setDeclining(true)}>Decline</Button>}
       </div>
     </form>
   );

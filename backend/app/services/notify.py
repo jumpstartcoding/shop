@@ -40,6 +40,14 @@ DEFAULTS: dict[str, tuple[str, str, str]] = {
         "Hi {customer_first_name},\n\nPlease review and authorize the work for your {vehicle}:"
         "\n{link}\n\nQuestions? Call us at {shop_phone}.\n\n{shop_name}",
     ),
+    "inspection_ready": (
+        "Inspection report",
+        "Your {vehicle} inspection report from {shop_name}",
+        "Hi {customer_first_name},\n\nWe've finished inspecting your {vehicle}. Your report, "
+        "with photos of anything we found, is here:\n{link}\n\nItems in red need attention "
+        "soon; yellow ones are worth watching. Questions? Reply on that page or call us at "
+        "{shop_phone}.\n\n{shop_name}",
+    ),
     "estimate_approved": (
         "Thanks for approving",
         "Thanks for approving estimate {document_number}",

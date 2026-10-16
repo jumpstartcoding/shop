@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useCallback, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DocumentList } from "../components/DocumentList";
+import { PhotoStrip } from "../components/Photos";
 import { LineItems } from "../components/LineItems";
 import { AuthorizationBanner, DocumentTrail, SendButton } from "../components/Sending";
 import { CustomerVehiclePicker } from "../components/Picker";
@@ -89,6 +90,7 @@ export function EstimatePage() {
   const action = useMutation({
     mutationFn: (path: string) => api.post(`/estimates/${id}/${path}`),
   });
+  const detach = useMutation({ mutationFn: () => api.patch(`/estimates/${id}`, { inspection_id: null }) });
   const convert = useMutation({
     mutationFn: () => api.post<WorkOrder>(`/estimates/${id}/convert`),
     onSuccess: (wo) => navigate(`/admin/work-orders/${wo.id}`),
@@ -127,6 +129,16 @@ export function EstimatePage() {
             ["Declined", est.declined_at && `${dateTime(est.declined_at)}, ${methodLabel(est.decision_method)}`],
             ["Note", est.decision_note],
             ["Work order", est.work_order_id && <Link className="underline" to={`/admin/work-orders/${est.work_order_id}`}>Open work order</Link>],
+            ["Inspection", est.inspection_id && (
+              <span>
+                <Link className="underline" to={`/admin/inspections/${est.inspection_id}`}>Findings and photos</Link> are shown with this estimate.
+                {editable && (
+                  <button type="button" className="block min-h-11 text-steel-2 underline underline-offset-4" onClick={() => detach.mutate()}>
+                    Don't show them
+                  </button>
+                )}
+              </span>
+            )],
           ]}
         />
         <div className="px-4 pb-3"><AuthorizationBanner state={est.authorization} /></div>
@@ -167,7 +179,7 @@ export function EstimatePage() {
           </a>
           <Button variant="quiet" onClick={() => setModal("notes")}>Notes</Button>
         </div>
-        <div className="px-4 pb-2"><ErrorNote error={action.error ?? convert.error} /></div>
+        <div className="px-4 pb-2"><ErrorNote error={action.error ?? convert.error ?? detach.error} /></div>
       </Sheet>
 
       {est.concern && <p className="text-lg">“{est.concern}”</p>}
@@ -187,6 +199,17 @@ export function EstimatePage() {
           </div>
         </Sheet>
       )}
+
+      <Sheet title="Photos">
+        <div className="p-4">
+          <p className="mb-3 text-steel-2">
+            {editable
+              ? "Photos here are shown to the customer with the estimate (unless you mark one shop-only)."
+              : "This version has been given to the customer. Photos added now appear only in a new version."}
+          </p>
+          <PhotoStrip entityType="estimate" entityId={id} readOnly={!editable} />
+        </div>
+      </Sheet>
 
       <DocumentTrail entityType="estimate" entityId={id} />
 

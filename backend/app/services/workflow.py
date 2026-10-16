@@ -20,6 +20,7 @@ from app.models import (
     Customer,
     Estimate,
     EstimateItem,
+    Inspection,
     Invoice,
     InvoiceItem,
     Payment,
@@ -38,7 +39,7 @@ from app.schemas.documents import (
     PaymentIn,
     WorkOrderCreate,
 )
-from app.services import documents
+from app.services import documents, history
 from app.services.business import get_business, shop_today
 from app.services.lines import apply_totals, build_line, copy_line
 
@@ -186,7 +187,10 @@ def change_work_order_status(
         _bump_mileage(vehicle, wo.mileage_out or wo.mileage_in)
     elif previous == "completed":
         wo.completed_at = None
+        history.hide_for_reopened(db, wo)
     wo.status = status
+    if status == "completed":
+        history.record_completion(db, wo)
     audit.record(
         db,
         user=user,
@@ -236,6 +240,13 @@ def create_estimate(db: Session, user: User, data: EstimateCreate) -> Estimate:
         tax_rate=wo.tax_rate if wo else business.tax_rate,
         is_supplement=data.is_supplement,
     )
+    if wo is not None:
+        # A finished inspection on the job explains the estimate: show its findings with it.
+        est.inspection_id = db.scalar(
+            select(Inspection.id).where(
+                Inspection.work_order_id == wo.id, Inspection.status == "completed"
+            )
+        )
     db.add(est)
     if data.items is None and wo is not None and not data.is_supplement:
         for i, src in enumerate(wo.items):
@@ -541,6 +552,7 @@ def invoice_from_work_order(
     apply_totals(inv, inv.items, inv.tax_rate)
     wo.qc_checklist = {**wo.qc_checklist, "invoice_generated": True}
     db.flush()
+    history.invoice_changed(db, inv)
     audit.record(
         db,
         user=user,
@@ -596,6 +608,8 @@ def void_invoice(db: Session, user: User, inv: Invoice, reason: str) -> None:
     inv.status = "void"
     inv.voided_at = _now()
     inv.void_reason = reason
+    db.flush()
+    history.invoice_changed(db, inv)
     audit.record(
         db,
         user=user,

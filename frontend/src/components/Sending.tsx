@@ -44,7 +44,7 @@ export function SendButton({
         <Modal title={label} onClose={() => setOpen(false)}>
           {!result ? (
             <div className="space-y-4">
-              <p>The customer gets a private link to review the {noun}{noun === "invoice" ? "" : ", sign, and approve it"} on their phone. No account needed.</p>
+              <p>The customer gets a private link to review the {noun}{noun === "invoice" ? "" : noun === "inspection report" ? " with its photos and sign to acknowledge it" : ", sign, and approve it"} on their phone. No account needed.</p>
               {email ? (
                 <label className="flex min-h-12 items-center gap-3">
                   <input type="checkbox" className="h-6 w-6" checked={useEmail} onChange={(e) => setUseEmail(e.target.checked)} />
@@ -101,7 +101,7 @@ const AUTH_TEXT: Record<AuthorizationState["status"], string> = {
   changed_since_signed: "Changed since the customer signed. Send it again for a new signature.",
 };
 
-export function AuthorizationBanner({ state }: { state: AuthorizationState | null }) {
+export function AuthorizationBanner({ state, approvedText }: { state: AuthorizationState | null; approvedText?: string }) {
   if (!state) return null;
   const tone =
     state.status === "approved" ? "border-go bg-go-wash text-go"
@@ -109,7 +109,7 @@ export function AuthorizationBanner({ state }: { state: AuthorizationState | nul
         : state.status === "awaiting" ? "border-hold bg-hold-wash text-hold" : "border-line bg-concrete text-steel-2";
   return (
     <p className={`rounded-md border-l-[6px] px-3 py-2 ${tone}`}>
-      <strong>{AUTH_TEXT[state.status]}</strong>
+      <strong>{state.status === "approved" && approvedText ? approvedText : AUTH_TEXT[state.status]}</strong>
       {state.signed_at && (state.status === "approved" || state.status === "declined") && (
         <> by {state.signer_name}, {dateTime(state.signed_at)} ({state.method === "drawn" ? "signed on their phone" : state.method === "typed" ? "typed signature" : state.method === "link" ? "through their link" : `by ${state.method?.replace("_", " ")}`})</>
       )}
@@ -118,7 +118,7 @@ export function AuthorizationBanner({ state }: { state: AuthorizationState | nul
 }
 
 /** Signed copies, links, and emails for one document: the paper trail. */
-export function DocumentTrail({ entityType, entityId }: { entityType: string; entityId: number }) {
+export function DocumentTrail({ entityType, entityId, approvedWord }: { entityType: string; entityId: number; approvedWord?: string }) {
   const { data, error } = useQuery({
     queryKey: ["trail", entityType, entityId],
     queryFn: () => api.get<Trail>("/documents", { entity_type: entityType, entity_id: entityId }),
@@ -133,7 +133,7 @@ export function DocumentTrail({ entityType, entityId }: { entityType: string; en
           <li key={`a${a.id}`} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3">
             <div className="min-w-0 flex-1">
               <p className={`font-semibold ${a.status === "superseded" ? "text-steel-2 line-through" : ""}`}>
-                {sentence(a.decision)} by {a.signer_name}
+                {a.decision === "approved" && approvedWord ? approvedWord : sentence(a.decision)} by {a.signer_name}
               </p>
               <p className="text-[15px] text-steel-2">
                 {dateTime(a.signed_at)}, {a.recorded_by_shop ? `recorded by you (${a.method.replace("_", " ")})` : a.method === "link" ? "through their link" : `${a.method} signature`}

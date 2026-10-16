@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.core import audit
 from app.core.deps import require_user
 from app.db import get_db
-from app.models import Customer, Estimate, EstimateItem, User
+from app.models import Customer, Estimate, EstimateItem, Inspection, User
 from app.schemas.common import Page
 from app.schemas.documents import (
     DecisionIn,
@@ -19,6 +19,7 @@ from app.schemas.documents import (
 from app.services import workflow
 from app.services.business import get_business
 from app.services.serialize import estimate_out, work_order_out
+from app.services.workflow import InvalidReference
 
 router = APIRouter(prefix="/estimates", tags=["estimates"])
 
@@ -92,6 +93,10 @@ def update_estimate(
     # Internal notes can always be edited; anything the customer sees is locked once sent.
     if set(changes) - {"internal_notes"}:
         workflow.ensure_estimate_editable(est)
+    if changes.get("inspection_id") is not None:
+        insp = db.get(Inspection, changes["inspection_id"])
+        if insp is None or insp.vehicle_id != est.vehicle_id:
+            raise InvalidReference("That inspection is for a different vehicle.")
     before = {k: getattr(est, k) for k in changes}
     for k, v in changes.items():
         setattr(est, k, v)

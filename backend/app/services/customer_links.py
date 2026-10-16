@@ -9,12 +9,24 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.core import audit
 from app.core.errors import AppError, Conflict, NotFound
+from app.core.storage import get_storage
 from app.documents.snapshot import snapshot_invoice
-from app.models import AccessToken, Customer, DocumentVersion, Estimate, Inquiry, Invoice, WorkOrder
+from app.models import (
+    AccessToken,
+    Customer,
+    DocumentVersion,
+    Estimate,
+    Inquiry,
+    Inspection,
+    Invoice,
+    Photo,
+    WorkOrder,
+)
 from app.schemas.public import QuestionIn, RespondIn
 from app.services import documents, notify
 from app.services.business import get_business
 from app.services.payments import online_payments_available
+from app.services.photos import photo_ids_in
 from app.services.workflow import apply_estimate_decision
 
 RESPONDABLE = {"sent", "viewed"}
@@ -82,7 +94,7 @@ def view(db: Session, token: str) -> dict:
     return {
         "purpose": link.purpose,
         "shop": shop,
-        "document": version.content,
+        "document": _without_storage_keys(version.content),
         "state": {
             "can_respond": can_respond,
             "decision": auth.decision if signed_this else None,
@@ -95,11 +107,24 @@ def view(db: Session, token: str) -> dict:
     }
 
 
+def _without_storage_keys(value):
+    """Photo storage paths stay server-side; the page loads photos by id through the link."""
+    if isinstance(value, dict):
+        return {
+            k: _without_storage_keys(v)
+            for k, v in value.items()
+            if k not in ("key", "thumb_key", "logo_key")
+        }
+    if isinstance(value, list):
+        return [_without_storage_keys(v) for v in value]
+    return value
+
+
 def respond(
     db: Session, token: str, data: RespondIn, *, ip: str | None, user_agent: str | None
 ) -> dict:
     link = documents.resolve_link(db, token)
-    if link.purpose not in ("estimate", "work_order"):
+    if link.purpose not in ("estimate", "work_order", "inspection"):
         raise NotFound("There's nothing to sign on this link.")
     version = _version(db, link)
     auth = documents.latest_authorization(db, version.entity_type, version.entity_id)
@@ -117,6 +142,16 @@ def respond(
                 "This estimate has changed since this link was sent. Ask the shop for the latest version.",
                 code="stale_version",
             )
+    elif link.purpose == "inspection":
+        if data.decision != "approved":
+            raise AppError(
+                "An inspection report can only be acknowledged. Use 'Ask a question' if "
+                "something doesn't look right.",
+                status_code=422,
+                code="validation_error",
+            )
+        if db.get(Inspection, link.entity_id) is None:
+            raise NotFound("This inspection report no longer exists.")
     else:
         wo = db.get(WorkOrder, link.entity_id)
         if wo is None or wo.status in ("completed", "cancelled"):
@@ -127,7 +162,9 @@ def respond(
     if data.decision == "approved":
         if not data.agree:
             raise AppError(
-                "Check the box to confirm you authorize the work.",
+                "Check the box to confirm."
+                if link.purpose == "inspection"
+                else "Check the box to confirm you authorize the work.",
                 status_code=422,
                 code="validation_error",
             )
@@ -167,15 +204,20 @@ def respond(
     if est is not None:
         apply_estimate_decision(db, est, data.decision, "link", data.note)
 
-    label = "estimate" if link.purpose == "estimate" else "repair authorization"
+    label = {
+        "estimate": "estimate",
+        "work_order": "repair authorization",
+        "inspection": "inspection report",
+    }[link.purpose]
+    verb = "acknowledged" if link.purpose == "inspection" else data.decision
     notify.notify_shop(
         db,
-        f"{data.signer_name} {data.decision} {label} {version.number}",
-        f"{data.signer_name} {data.decision} {label} {version.number} (version {version.version})."
+        f"{data.signer_name} {verb} {label} {version.number}",
+        f"{data.signer_name} {verb} {label} {version.number} (version {version.version})."
         + (f"\n\nNote: {data.note}" if data.note else "")
         + "\n\nOpen the shop dashboard to continue.",
     )
-    if data.decision == "approved" and customer and customer.email:
+    if data.decision == "approved" and customer and customer.email and link.purpose != "inspection":
         notify.send_templated(
             db,
             "estimate_approved",
@@ -242,3 +284,20 @@ def pdf_for_link(db: Session, token: str) -> tuple[bytes, str]:
         signed = db.get(DocumentVersion, auth.signed_version_id)
         return documents.get_pdf(signed), f"{version.number}-signed.pdf"
     return documents.get_pdf(version), f"{version.number}.pdf"
+
+
+def photo_for_link(db: Session, token: str, photo_id: int, size: str) -> bytes:
+    """A photo, only if it appears on the document this link shows and hasn't been removed."""
+    link = documents.resolve_link(db, token)
+    if not link.document_version_id:
+        raise NotFound("Photo not found.")
+    version = _version(db, link)
+    photo = db.get(Photo, photo_id)
+    if (
+        photo is None
+        or photo.deleted_at is not None
+        or photo.customer_id != link.customer_id
+        or photo_id not in photo_ids_in(version.content)
+    ):
+        raise NotFound("Photo not found.")
+    return get_storage().get(photo.thumb_key if size == "thumb" else photo.key)

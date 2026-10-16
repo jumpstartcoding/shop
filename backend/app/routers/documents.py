@@ -230,8 +230,9 @@ def version_pdf(version_id: int, db: Session = Depends(get_db), _: User = Depend
 def document_trail(
     entity_type: str, entity_id: int, db: Session = Depends(get_db), _: User = Depends(require_user)
 ):
-    """Everything sent, signed, and emailed for one estimate, work order, or invoice."""
-    if entity_type not in ("estimate", "work_order", "invoice"):
+    """Everything sent, signed, and emailed for one estimate, work order, invoice, or
+    inspection report."""
+    if entity_type not in ("estimate", "work_order", "invoice", "inspection"):
         raise AppError("Unknown document type.", status_code=422, code="validation_error")
     versions = db.scalars(
         select(DocumentVersion)

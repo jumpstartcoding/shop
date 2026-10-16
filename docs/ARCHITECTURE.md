@@ -34,7 +34,7 @@ Why each piece:
 | API | FastAPI in a **container-image Lambda** (x86_64, Debian + Lambda runtime client), behind a Lambda Function URL | Pays per request; free tier covers a one-person shop. Container image because WeasyPrint (PDFs) needs Pango and HarfBuzz; Debian ships current builds. x86_64 so GitHub's standard runners build it natively (arm64 would save ~20% only beyond the free tier). |
 | Edge | CloudFront serving both `/` and `/api/*` | Same origin for the SPA and the API, so cookies are first-party, no CORS, one TLS certificate. |
 | Database | **Neon Postgres** (free plan to start) | RDS is the only AWS-native Postgres and it carries a fixed monthly instance cost; Neon scales to zero and charges for use. Postgres either way, so moving later is a `pg_dump`/`pg_restore`. |
-| Files | S3, uploads via presigned URLs, images compressed in the browser before upload | Lambda never proxies large uploads; photos stay small. |
+| Files | S3. Photos are shrunk on the phone (~1600 px JPEG, a few hundred KB), uploaded through the API, then decoded, rotated upright, and re-encoded by the server, with a 480 px thumbnail | Re-encoding on the server strips EXIF (the phone's GPS position never reaches a customer) and rejects anything that isn't an image. Shrunk photos sit well under Lambda's 6 MB request limit, so presigned direct-to-S3 uploads (and the bucket CORS they need) aren't worth their complexity. |
 | Email | Amazon SES | Same AWS account, pay per message. |
 | Payments | Stripe Checkout (hosted) + webhooks | Card data never touches this system. Apple Pay / Google Pay come with Checkout. |
 | PDFs | WeasyPrint (HTML/CSS → PDF) on the server, Barlow fonts bundled (SIL OFL) | Real print layout, consistent branding, no browser screenshots. The Lambda image installs Pango/HarfBuzz. |
@@ -87,8 +87,8 @@ All money is stored as **integer cents**. Quantities and hours are `NUMERIC(10,2
 | `email_templates`, `email_log` | 2 | Shop edits to built-in templates (absent row = built-in wording); every send attempt with status sent/failed/skipped. |
 | `stripe_events` | 3 | Processed webhook event IDs and outcomes, inserted in the payment's transaction for idempotency. Payments gained `refunded_cents`, `refunded_at`, and `provider_session_id`. |
 | `inspections`, `inspection_items` | 4 | Digital inspection (Good / Monitor / Needs Attention / Urgent) with recommended repair and estimated cost. |
-| `photos` | 4 | S3 key + polymorphic owner (`work_order`, `inspection_item`, `vehicle`, …). |
-| `service_records` | 4 | Written when a work order completes, plus manual entries for history done elsewhere. |
+| `photos` | 4 | S3 keys (full + thumbnail) + polymorphic owner (`inspection_item`, `work_order`, `estimate`, `vehicle`, `customer`), customer-visible flag, soft delete (a photo on a signed document is never erased). |
+| `service_records` | 4 | Written when a work order completes (hidden if it's reopened, rewritten on re-completion), linked to its invoice, plus manual entries for work done elsewhere. Warranties are computed from the warranty fields on its lines. |
 | `parts`, `vendors` | 5 | Simple catalog and vendor list; optional stock decrement. |
 | `expenses` | 5 | Expense log with receipt photo. |
 | `maintenance_reminders` | 5 | Due date and/or mileage per vehicle; nightly job emails due ones. |
@@ -245,7 +245,7 @@ Each phase ships working, tested functionality. Nothing is stubbed to look finis
 | **1b** Admin UI (done) | Mobile-first React admin: dashboard, search, customers, vehicles, calendar, work order editor + status board, estimates, invoices, record payment, settings. |
 | **2** Customer links, PDFs, email, signatures (done) | Access tokens, customer estimate/invoice pages, approve/decline/question, additional-repair approvals, signature capture, document versions and locking, WeasyPrint PDFs, SES email + editable templates, public website + booking form. |
 | **3** Online payments (done) | Stripe Checkout, webhook handling (heavily tested), receipts, refunds. |
-| **4** Inspections and photos | Digital inspection, presigned uploads with client-side compression, inspection report PDF, service history, QC checklist enforcement. |
+| **4** Inspections and photos (done) | Digital inspection on the work order, photos (phone-side shrink, server re-encode), customer inspection report with traffic lights and photos (signable acknowledgement), findings and photos on estimates, estimate from findings, service history with warranties. |
 | **5** Shop admin | Parts, vendors, expenses, maintenance reminders + nightly job, reports with date filters, CSV export, VIN decode via the free NHTSA vPIC API (optional, app works without it). |
 | **6** Production hardening (done, ahead of 4 and 5) | CloudFormation templates, deploy and backup workflows, Lambda image + emulator smoke test, go-live checks, security review against §52, DEPLOYMENT/SECURITY/BACKUPS docs. |
 

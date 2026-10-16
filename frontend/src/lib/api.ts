@@ -74,7 +74,28 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   return data as T;
 }
 
+/** Upload a binary body (a photo). Same error handling as the JSON calls. */
+async function upload<T>(path: string, body: Blob, query?: Query): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json", "Content-Type": body.type || "image/jpeg" };
+  const token = csrfToken();
+  if (token) headers["X-CSRF-Token"] = token;
+  let res: Response;
+  try {
+    res = await fetch(buildUrl(path, query), { method: "POST", headers, credentials: "same-origin", body });
+  } catch {
+    throw new ApiError(0, "network", "The photo didn't upload. Check your connection and try again.");
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = data?.error ?? {};
+    if (res.status === 401) onUnauthorized?.();
+    throw new ApiError(res.status, err.code ?? "error", err.message ?? `Upload failed (${res.status}).`, err.details ?? []);
+  }
+  return data as T;
+}
+
 export const api = {
+  upload,
   get: <T>(path: string, query?: Query) => request<T>("GET", path, undefined, query),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {}),
   put: <T>(path: string, body: unknown) => request<T>("PUT", path, body),

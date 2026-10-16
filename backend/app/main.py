@@ -18,8 +18,11 @@ from app.routers import (
     dashboard,
     documents,
     estimates,
+    history,
+    inspections,
     invoices,
     payments,
+    photos,
     public,
     settings,
     work_orders,
@@ -98,6 +101,9 @@ def create_app() -> FastAPI:
         documents.router,
         public.router,
         payments.router,
+        photos.router,
+        inspections.router,
+        history.router,
     ):
         app.include_router(r, prefix=API_PREFIX)
 

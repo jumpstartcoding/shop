@@ -36,6 +36,49 @@
 
 {% if doc.concern %}<div class="concern"><span class="label">Customer concern</span><br>{{ doc.concern }}</div>{% endif %}
 
+{% macro photo_row(photos, cls="photos") %}
+  {% if photos %}<div class="{{ cls }}">{% for p in photos %}{% set src = photo(p) %}{% if src %}<figure><img src="{{ src }}" alt="">{% if p.caption %}<figcaption>{{ p.caption }}</figcaption>{% endif %}</figure>{% endif %}{% endfor %}</div>{% endif %}
+{% endmacro %}
+
+{% macro findings_table(findings) %}
+<table class="findings">
+  {% for f in findings %}
+  <tr>
+    <td class="light-cell"><span class="light {{ f.color }}"></span></td>
+    <td>
+      <strong>{{ f.name }}</strong> <span class="flag {{ f.color }}">{{ f.label }}</span>
+      {% if f.notes %}<div style="white-space:pre-wrap">{{ f.notes }}</div>{% endif %}
+      {% if f.recommendation %}<div><span class="label">Recommended:</span> {{ f.recommendation }}</div>{% endif %}
+      {{ photo_row(f.photos) }}
+    </td>
+    <td class="r num">{% if f.estimated_cost_cents %}{{ f.estimated_cost_cents | money }}{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endmacro %}
+
+{% if doc.doc_type == "inspection" %}
+<div class="counts">
+  <span><span class="light red"></span> {{ doc.counts.red }} need attention</span>
+  <span><span class="light yellow"></span> {{ doc.counts.yellow }} to monitor</span>
+  <span><span class="light green"></span> {{ doc.counts.green }} good</span>
+</div>
+{% if doc.notes %}<div class="notes"><div class="label">Summary</div><div style="white-space:pre-wrap">{{ doc.notes }}</div></div>{% endif %}
+{% set flagged = doc.findings | rejectattr("color", "equalto", "green") | list %}
+{% set good = doc.findings | selectattr("color", "equalto", "green") | list %}
+{% if flagged %}
+<h2 class="section">Findings</h2>
+{{ findings_table(flagged) }}
+{% if doc.estimated_total_cents %}
+<table class="totals"><tr class="grand"><td>Estimated cost of recommended repairs</td><td class="r num">{{ doc.estimated_total_cents | money }}</td></tr></table>
+<div class="small muted" style="text-align:right">Estimates only. A written estimate is provided before any work is done.</div>
+{% endif %}
+{% endif %}
+{% if good %}
+<h2 class="section">Checked and good</h2>
+<div class="good-list">{% for f in good %}<div><span class="light green"></span> {{ f.name }}{% if f.notes %}: <span class="muted">{{ f.notes }}</span>{% endif %}</div>{{ photo_row(f.photos) }}{% endfor %}</div>
+{% endif %}
+{% else %}
 <table class="lines">
   <thead><tr><th>Description</th><th class="r">Qty / hrs</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
   <tbody>
@@ -76,8 +119,19 @@
 </table>
 
 {% if doc.notes %}<div class="notes"><div class="label">Notes</div><div style="white-space:pre-wrap">{{ doc.notes }}</div></div>{% endif %}
+{% endif %}
 
-{% if doc.doc_type in ("estimate", "work_order") %}
+{% if doc.inspection and doc.inspection.findings %}
+<h2 class="section">Inspection findings <span class="muted small">({{ doc.inspection.number }})</span></h2>
+{{ findings_table(doc.inspection.findings) }}
+{% endif %}
+
+{% if doc.photos %}
+<h2 class="section">Photos</h2>
+{{ photo_row(doc.photos, "photos large") }}
+{% endif %}
+
+{% if doc.doc_type in ("estimate", "work_order", "inspection") %}
   {% if doc.terms %}<div class="terms">{{ doc.terms }}</div>{% endif %}
   <div class="sign">
     {% if signature and signature.decision == "declined" %}

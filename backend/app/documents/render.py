@@ -77,17 +77,32 @@ def _data_uri(data: bytes, mime: str) -> str:
 
 
 def render_html(snapshot: dict, signature: dict | None = None) -> str:
+    storage = get_storage()
     logo = None
     if snapshot.get("business", {}).get("logo_key"):
         try:
-            logo = _data_uri(get_storage().get(snapshot["business"]["logo_key"]), "image/png")
+            logo = _data_uri(storage.get(snapshot["business"]["logo_key"]), "image/png")
         except Exception:  # a missing logo must never block a document
             logo = None
+
+    def photo(p: dict) -> str | None:
+        """Photos are embedded from their thumbnails (480 px, plenty for print)."""
+        try:
+            return _data_uri(storage.get(p["thumb_key"]), "image/jpeg")
+        except Exception:
+            return None
+
     template = "receipt.html" if snapshot["doc_type"] == "receipt" else "document.html"
     return (
         _env()
         .get_template(template)
-        .render(doc=snapshot, signature=signature, logo=logo, fonts=(HERE / "fonts").as_uri())
+        .render(
+            doc=snapshot,
+            signature=signature,
+            logo=logo,
+            photo=photo,
+            fonts=(HERE / "fonts").as_uri(),
+        )
     )
 
 

@@ -61,3 +61,26 @@ table.lines tr { page-break-inside: avoid; }
 .declined { color: #b3302a; font-weight: 600; }
 .stamp { display: inline-block; border: 2pt solid #276b43; color: #276b43; padding: 2pt 10pt;
          font: 700 14pt "Barlow Condensed", sans-serif; transform: rotate(-4deg); }
+
+h2.section { font-size: 14pt; margin: 14pt 0 4pt; }
+.counts { display: flex; gap: 18pt; margin-top: 12pt; padding: 6pt 9pt; background: #eef0ef; font-weight: 600; }
+.light { display: inline-block; width: 10pt; height: 10pt; border-radius: 5pt; vertical-align: -1pt; }
+.light.red { background: #b3302a; }
+.light.yellow { background: #d9a400; }
+.light.green { background: #276b43; }
+.flag { font-size: 8.5pt; font-weight: 600; padding: 0 4pt; border-radius: 2pt; color: #fff; }
+.flag.red { background: #b3302a; }
+.flag.yellow { background: #8a6a00; }
+.flag.green { background: #276b43; }
+table.findings { width: 100%; border-collapse: collapse; }
+table.findings td { padding: 6pt 4pt; border-bottom: 0.5pt solid #cbd2cf; vertical-align: top; }
+table.findings td.light-cell { width: 14pt; padding-top: 8pt; }
+table.findings td.r { text-align: right; white-space: nowrap; width: 70pt; }
+table.findings tr { page-break-inside: avoid; }
+.good-list { columns: 2; column-gap: 18pt; }
+.good-list > div { padding: 2pt 0; break-inside: avoid; }
+.photos { display: flex; flex-wrap: wrap; gap: 5pt; margin-top: 5pt; }
+.photos figure { margin: 0; page-break-inside: avoid; }
+.photos img { height: 78pt; display: block; border: 0.5pt solid #cbd2cf; }
+.photos.large img { height: 140pt; }
+.photos figcaption { font-size: 8pt; color: #43525a; max-width: 140pt; }

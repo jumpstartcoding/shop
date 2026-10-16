@@ -6,6 +6,7 @@ import { Calendar } from "./pages/Calendar";
 import { CustomerDetailPage, CustomerList, NewCustomer } from "./pages/Customers";
 import { Dashboard } from "./pages/Dashboard";
 import { EstimateList, EstimatePage, NewEstimate } from "./pages/Estimates";
+import { InspectionPage } from "./pages/Inspection";
 import { InvoiceList, InvoicePage, NewInvoice } from "./pages/Invoices";
 import { Login } from "./pages/Login";
 import { SettingsPage } from "./pages/Settings";
@@ -33,6 +34,7 @@ export default function AdminRoutes() {
         <Route path="vehicles/:id" element={<VehiclePage />} />
         <Route path="work-orders/new" element={<NewWorkOrder />} />
         <Route path="work-orders/:id" element={<WorkOrderPage />} />
+        <Route path="inspections/:id" element={<InspectionPage />} />
         <Route path="estimates" element={<EstimateList />} />
         <Route path="estimates/new" element={<NewEstimate />} />
         <Route path="estimates/:id" element={<EstimatePage />} />

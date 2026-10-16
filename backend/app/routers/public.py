@@ -5,6 +5,7 @@ contact forms have a honeypot field and a per-IP hourly limit kept in Postgres.
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -52,6 +53,21 @@ def view_link(token: str, db: Session = Depends(get_db)):
 def link_pdf(token: str, db: Session = Depends(get_db)):
     data, name = customer_links.pdf_for_link(db, token)
     return pdf_response(data, name)
+
+
+@router.get("/links/{token}/photos/{photo_id}")
+def link_photo(
+    token: str,
+    photo_id: int,
+    size: Literal["thumb", "full"] = "full",
+    db: Session = Depends(get_db),
+):
+    data = customer_links.photo_for_link(db, token, photo_id, size)
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.get("/links/{token}/receipts/{payment_id}")

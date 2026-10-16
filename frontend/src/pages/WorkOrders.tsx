@@ -2,12 +2,13 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { LineItems } from "../components/LineItems";
+import { PhotoStrip } from "../components/Photos";
 import { CustomerVehiclePicker } from "../components/Picker";
 import { AuthorizationBanner, DocumentTrail, SendButton } from "../components/Sending";
 import { Button, ErrorNote, Field, InternalNote, LinkButton, Loading, Modal, PageHeader, Sheet, StatusBadge } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { dateTime, phoneHref, sentence } from "../lib/format";
-import { WO_STATUSES, type Estimate, type Invoice, type WorkOrder, type WorkOrderStatus } from "../lib/types";
+import { WO_STATUSES, type Estimate, type Inspection, type Invoice, type WorkOrder, type WorkOrderStatus } from "../lib/types";
 
 export const CHECKLIST: [string, string][] = [
   ["repair_completed", "Repair completed"],
@@ -154,6 +155,8 @@ export function WorkOrderPage() {
       <StatusStepper current={wo.status} busy={setStatus.isPending} onPick={(s) => setStatus.mutate({ status: s })} />
       <ErrorNote error={setStatus.error instanceof ApiError && setStatus.error.code === "checklist_incomplete" ? null : setStatus.error} />
 
+      <InspectionSheet wo={wo} closed={closed} />
+
       <LineItems
         basePath={`/work-orders/${id}`}
         items={wo.items}
@@ -241,6 +244,13 @@ export function WorkOrderPage() {
         </Sheet>
       )}
 
+      <Sheet title="Photos">
+        <div className="p-4">
+          <p className="mb-3 text-steel-2">Before and after shots, the VIN plate, a scan tool screen. Photos marked for the customer print on the work order.</p>
+          <PhotoStrip entityType="work_order" entityId={wo.id} />
+        </div>
+      </Sheet>
+
       <p className="text-[15px] text-steel-2">
         Opened {dateTime(wo.created_at)}{wo.completed_at && `. Completed ${dateTime(wo.completed_at)}`}.
       </p>
@@ -257,6 +267,46 @@ export function WorkOrderPage() {
         />
       )}
     </div>
+  );
+}
+
+function InspectionSheet({ wo, closed }: { wo: WorkOrder; closed: boolean }) {
+  const navigate = useNavigate();
+  const insp = useQuery({
+    queryKey: ["inspection", wo.inspection_id],
+    queryFn: () => api.get<Inspection>(`/inspections/${wo.inspection_id}`),
+    enabled: !!wo.inspection_id,
+  });
+  const start = useMutation({
+    mutationFn: () => api.post<Inspection>(`/work-orders/${wo.id}/inspection`),
+    onSuccess: (i) => navigate(`/admin/inspections/${i.id}`),
+  });
+  if (!wo.inspection_id) {
+    if (closed) return null;
+    return (
+      <Sheet title="Inspection">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <p className="text-steel-2">Walk around the car with a 14-point checklist, take photos, and send the customer a color-coded report.</p>
+          <Button variant="primary" busy={start.isPending} onClick={() => start.mutate()}>Start inspection</Button>
+          <div className="w-full"><ErrorNote error={start.error} /></div>
+        </div>
+      </Sheet>
+    );
+  }
+  const d = insp.data;
+  return (
+    <Sheet title="Inspection" action={<LinkButton to={`/admin/inspections/${wo.inspection_id}`} variant={d?.status === "completed" ? "secondary" : "primary"}>{d?.status === "completed" ? "Open" : "Continue"}</LinkButton>}>
+      {d ? (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3">
+          <span className="font-semibold">{d.number}{d.status === "completed" ? ", finished" : `, ${d.items.length - d.counts.unchecked} of ${d.items.length} checked`}</span>
+          <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-3 w-3 rounded-full bg-signal" />{d.counts.attention + d.counts.urgent} need attention</span>
+          <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-3 w-3 rounded-full bg-safety-deep" />{d.counts.monitor} monitor</span>
+          <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-3 w-3 rounded-full bg-go" />{d.counts.good} good</span>
+        </div>
+      ) : (
+        <Loading />
+      )}
+    </Sheet>
   );
 }
 

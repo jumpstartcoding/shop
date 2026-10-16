@@ -110,6 +110,16 @@ class Business(IdMixin, TimestampMixin, Base):
             "and acknowledge the estimated charges shown."
         ),
     )
+    # What a customer agrees to when signing an inspection report (an acknowledgement,
+    # not an authorization of work).
+    inspection_statement: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default=(
+            "By signing below, I acknowledge that I have received and reviewed this "
+            "inspection report."
+        ),
+    )
     allow_typed_signature: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     invoice_footer: Mapped[str | None] = mapped_column(Text)
     # Printed on signed work order authorizations (e.g. storage fees, diagnostic charges).

@@ -148,6 +148,7 @@ export type WorkOrder = Totals & {
   party: Party;
   items: LineItem[];
   invoice_ids: number[];
+  inspection_id: number | null;
   estimate_ids: number[];
   authorization: AuthorizationState | null;
   email?: EmailResult | null;
@@ -196,6 +197,7 @@ export type Estimate = Totals & {
   customer_id: number;
   vehicle_id: number;
   work_order_id: number | null;
+  inspection_id: number | null;
   concern: string | null;
   customer_notes: string | null;
   internal_notes: string | null;
@@ -324,6 +326,7 @@ export type Business = {
   invoice_due_days: number;
   estimate_valid_days: number;
   authorization_statement: string;
+  inspection_statement: string;
   allow_typed_signature: boolean;
   invoice_footer: string | null;
   terms_text: string | null;
@@ -395,3 +398,99 @@ export type AuditEntry = {
   action: string;
   details: Record<string, unknown>;
 };
+
+export type PhotoEntity = "inspection_item" | "work_order" | "estimate" | "vehicle" | "customer";
+
+export type Photo = {
+  id: number;
+  entity_type: PhotoEntity;
+  entity_id: number;
+  caption: string | null;
+  customer_visible: boolean;
+  width: number;
+  height: number;
+  created_at: string;
+  thumb_url: string;
+  url: string;
+};
+
+export type ItemStatus = "good" | "monitor" | "attention" | "urgent";
+
+export type InspectionItem = {
+  id: number;
+  position: number;
+  category: string;
+  name: string;
+  status: ItemStatus | null;
+  notes: string | null;
+  recommendation: string | null;
+  estimated_cost_cents: number | null;
+  photos: Photo[];
+};
+
+export type Inspection = {
+  id: number;
+  number: string;
+  status: "in_progress" | "completed";
+  work_order_id: number;
+  work_order_number: string;
+  work_order_status: WorkOrderStatus;
+  customer_id: number;
+  customer_name: string;
+  customer_email: string | null;
+  customer_phone: string | null;
+  vehicle_id: number;
+  vehicle_name: string;
+  mileage: number | null;
+  summary: string | null;
+  internal_notes: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  items: InspectionItem[];
+  counts: Record<ItemStatus | "unchecked", number>;
+  estimate_ids: number[];
+  authorization: AuthorizationState | null;
+};
+
+export type InspectionListItem = {
+  id: number;
+  number: string;
+  status: string;
+  mileage: number | null;
+  created_at: string;
+  completed_at: string | null;
+  counts: { red: number; yellow: number; green: number };
+};
+
+export type ServiceRecord = {
+  id: number;
+  source: "work_order" | "manual";
+  service_date: string;
+  mileage: number | null;
+  summary: string;
+  lines: { kind: string; description: string; quantity: string; part_number: string | null }[];
+  labor_cents: number;
+  parts_cents: number;
+  total_cents: number | null;
+  notes: string | null;
+  performed_by: string | null;
+  work_order: { id: number; number: string } | null;
+  invoice: { id: number; number: string } | null;
+};
+
+export type Warranty = {
+  record_id: number;
+  service_date: string;
+  description: string;
+  kind: string;
+  part_number: string | null;
+  months: number | null;
+  miles: number | null;
+  notes: string | null;
+  expires_on: string | null;
+  expires_mileage: number | null;
+  state: "active" | "expired" | "see_notes";
+};
+
+export type ServiceHistory = { records: ServiceRecord[]; warranties: Warranty[] };

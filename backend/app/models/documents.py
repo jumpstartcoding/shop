@@ -154,6 +154,10 @@ class Estimate(IdMixin, TimestampMixin, TotalsMixin, Base):
     work_order_id: Mapped[int | None] = mapped_column(
         ForeignKey("work_orders.id", ondelete="SET NULL"), index=True
     )
+    # Inspection whose findings are shown with this estimate.
+    inspection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("inspections.id", ondelete="SET NULL")
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", index=True)
     concern: Mapped[str | None] = mapped_column(Text)
     customer_notes: Mapped[str | None] = mapped_column(Text)

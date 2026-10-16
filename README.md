@@ -17,7 +17,7 @@ Built in phases; each phase ships working, tested functionality. See [docs/ARCHI
 | 2 | Customer links, PDFs, email, digital signatures, public website and booking | **Done** (81 backend tests) |
 | 3 | Stripe online payments, receipts, refunds | **Done** (109 backend tests) |
 | 6 | Production: AWS templates, deploy and backup pipelines, go-live checks, security review | **Done** (128 backend tests) |
-| 4 | Inspections, photos, service history | Planned |
+| 4 | Inspections, photos, service history | **Done** (142 backend tests) |
 | 5 | Parts, vendors, expenses, reminders, reports, CSV export, VIN decode | Planned |
 
 ### What Phase 1a does today
@@ -70,7 +70,14 @@ Setup, test cards, and the webhook events to register are in [docs/PAYMENTS.md](
 - **Security review** against spec §52, with whole-API tests (every private route needs sign-in and CSRF, the exact set of public routes is pinned) and one real fix: the visitor IP used for rate limits and signature records can no longer be spoofed. Details in [docs/SECURITY.md](docs/SECURITY.md).
 - Secrets in AWS Parameter Store; Neon connection strings work as pasted; customer emails show the shop's name as the sender.
 
-What it does **not** do yet: inspections and photos (Phase 4); parts, expenses, reports, and CSV export (Phase 5).
+### What Phase 4 adds
+- **Digital inspection** on any work order: a 14-point checklist (engine through electrical) with one tap per item for Good, Monitor, Needs attention, or Urgent. Add notes the customer will read, a recommended repair with an estimated cost, and photos. Remove items that don't apply, add your own, and mark the rest Good in one tap. A finished inspection is locked until reopened.
+- **Photos from the phone's camera** on inspection items, work orders, estimates, and vehicles. They're shrunk on the phone before upload, then re-encoded by the server, which turns them upright and removes location and camera data. Each photo can be captioned or marked shop-only. Removing one hides it everywhere except documents already signed.
+- **Customer inspection report:** a link (and PDF) with red, yellow, and green findings, red first, with photos and estimated costs. The customer can ask a question or sign to acknowledge it; the acknowledgement wording is in Settings.
+- **Estimates from findings:** one tap turns red and yellow findings into a draft estimate (an additional-work request if the job is already approved). Findings and photos are shown with the estimate, on the customer's page and the PDF.
+- **Service history:** every completed job becomes part of the vehicle's record (date, mileage, work, invoice, total, notes). Add past work done elsewhere by hand. Warranties from part and labor lines show as active or expired by date and mileage.
+
+What it does **not** do yet: parts, vendors, expenses, reminders, reports, and CSV export (Phase 5).
 
 ### Electronic signatures: what this is and isn't
 The signing flow is designed as a strong electronic authorization record: who signed, what exact version they saw, the statement they agreed to, when, from which IP address and device, and a fingerprint of the document. It is **not legal advice and makes no claim about enforceability in any particular state.** The shop is responsible for wording the authorization statement and terms (Settings) appropriately for its jurisdiction, and may want a local attorney to review them.
@@ -117,7 +124,7 @@ uv run pytest                      # uses TEST_DATABASE_URL; the test database i
 uv run ruff check app tests migrations
 ```
 
-Tests run against real Postgres, not SQLite, so constraints, row locking, and numbering behave as they will in production. Covered: pricing and tax math, authentication and CSRF, customer/vehicle rules, appointments, the estimate → work order → invoice → payment workflow, overpayment and edit-after-payment protection, concurrent invoice numbering, customer links, signatures and document versions, PDFs, email, Stripe webhooks and refunds, go-live checks, the Lambda entry point, and API-wide access rules.
+Tests run against real Postgres, not SQLite, so constraints, row locking, and numbering behave as they will in production. Covered: photos (re-encoding, location stripping, limits), inspections and their reports, service history and warranties, pricing and tax math, authentication and CSRF, customer/vehicle rules, appointments, the estimate → work order → invoice → payment workflow, overpayment and edit-after-payment protection, concurrent invoice numbering, customer links, signatures and document versions, PDFs, email, Stripe webhooks and refunds, go-live checks, the Lambda entry point, and API-wide access rules.
 
 Go-live checks against your local setup: `uv run python -m app.tasks doctor`.
 

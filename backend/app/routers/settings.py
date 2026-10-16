@@ -52,6 +52,7 @@ def update_settings(
         "estimate_prefix",
         "work_order_prefix",
         "authorization_statement",
+        "inspection_statement",
     ):
         if required in changes and changes[required] is None:
             raise AppError(

@@ -13,10 +13,29 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import Business, Customer, Estimate, Invoice, Payment, Vehicle, WorkOrder
+from app.models import (
+    Business,
+    Customer,
+    Estimate,
+    Inspection,
+    Invoice,
+    Payment,
+    Vehicle,
+    WorkOrder,
+)
 from app.services.business import get_business, shop_today
+from app.services.photos import photos_for, snapshot_photos
 
 KIND_LABEL = {"labor": "Labor", "part": "Part", "fee": "Fee", "discount": "Discount"}
+
+# Customer-facing traffic lights (spec §29): urgent and needs-attention are both red.
+FINDING = {
+    "urgent": ("red", "Urgent"),
+    "attention": ("red", "Needs attention"),
+    "monitor": ("yellow", "Monitor"),
+    "good": ("green", "Good"),
+}
+_ORDER = {"urgent": 0, "attention": 1, "monitor": 2, "good": 3}
 
 
 def _iso(v: Any) -> Any:
@@ -131,6 +150,8 @@ def snapshot_estimate(db: Session, est: Estimate) -> dict:
         "authorization_statement": b.authorization_statement,
         "terms": b.terms_text,
         "footer": None,
+        "photos": _photos(db, "estimate", est.id),
+        "inspection": _attached_inspection(db, est.inspection_id),
     }
 
 
@@ -151,6 +172,78 @@ def snapshot_work_order(db: Session, wo: WorkOrder, version: int) -> dict:
         "totals": _totals(wo),
         "authorization_statement": b.authorization_statement,
         "terms": b.terms_text,
+        "footer": None,
+        "photos": _photos(db, "work_order", wo.id),
+    }
+
+
+def _photos(db: Session, entity_type: str, entity_id: int) -> list[dict]:
+    return snapshot_photos(photos_for(db, entity_type, [entity_id])[entity_id])
+
+
+def _findings(db: Session, insp: Inspection, *, flagged_only: bool) -> list[dict]:
+    checked = [i for i in insp.items if i.status]
+    if flagged_only:
+        checked = [i for i in checked if i.status != "good"]
+    photos = photos_for(db, "inspection_item", [i.id for i in checked])
+    out = []
+    for item in sorted(checked, key=lambda i: (_ORDER[i.status], i.position, i.id)):
+        color, label = FINDING[item.status]
+        out.append(
+            {
+                "category": item.category,
+                "name": item.name,
+                "status": item.status,
+                "color": color,
+                "label": label,
+                "notes": item.notes,
+                "recommendation": item.recommendation,
+                "estimated_cost_cents": item.estimated_cost_cents,
+                "photos": snapshot_photos(photos[item.id]),
+            }
+        )
+    return out
+
+
+def _counts(findings: list[dict]) -> dict:
+    return {c: sum(1 for f in findings if f["color"] == c) for c in ("red", "yellow", "green")}
+
+
+def _attached_inspection(db: Session, inspection_id: int | None) -> dict | None:
+    insp = db.get(Inspection, inspection_id) if inspection_id else None
+    if insp is None:
+        return None
+    findings = _findings(db, insp, flagged_only=True)
+    return {
+        "number": insp.number,
+        "summary": insp.summary,
+        "counts": _counts(_findings(db, insp, flagged_only=False)),
+        "findings": findings,
+    }
+
+
+def snapshot_inspection(db: Session, insp: Inspection, version: int) -> dict:
+    b = get_business(db)
+    findings = _findings(db, insp, flagged_only=False)
+    wo = db.get(WorkOrder, insp.work_order_id)
+    return {
+        "doc_type": "inspection",
+        "title": "Vehicle inspection report",
+        "number": insp.number,
+        "version": version,
+        "date": _iso(shop_today(b)),
+        "business": _business(b),
+        "customer": _customer(insp.customer),
+        "vehicle": _vehicle(insp.vehicle, insp.mileage),
+        "concern": wo.concern if wo else None,
+        "notes": insp.summary,
+        "findings": findings,
+        "counts": _counts(findings),
+        "estimated_total_cents": sum(
+            f["estimated_cost_cents"] or 0 for f in findings if f["color"] != "green"
+        ),
+        "authorization_statement": b.inspection_statement,
+        "terms": None,
         "footer": None,
     }
 

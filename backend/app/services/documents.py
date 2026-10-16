@@ -24,6 +24,7 @@ from app.documents.render import render_pdf, sha256, signature_block
 from app.documents.snapshot import (
     content_hash,
     snapshot_estimate,
+    snapshot_inspection,
     snapshot_invoice,
     snapshot_work_order,
 )
@@ -32,6 +33,7 @@ from app.models import (
     Authorization,
     DocumentVersion,
     Estimate,
+    Inspection,
     Invoice,
     User,
     WorkOrder,
@@ -55,7 +57,7 @@ def material_fingerprint(snapshot: dict) -> str:
     """Hash of the parts of a document that change what's being authorized: the work, the
     prices, the people and vehicle. Excludes the print date, so the same work on a different
     day isn't treated as a change."""
-    keys = ("customer", "vehicle", "concern", "notes", "items", "totals")
+    keys = ("customer", "vehicle", "concern", "notes", "items", "totals", "findings")
     return content_hash({k: snapshot.get(k) for k in keys})
 
 
@@ -78,6 +80,21 @@ def _latest_issued(db: Session, entity_type: str, entity_id: int) -> DocumentVer
     )
 
 
+_SNAPSHOTS = {
+    "work_order": snapshot_work_order,
+    "invoice": snapshot_invoice,
+    "inspection": snapshot_inspection,
+}
+
+
+def _entity_type(entity) -> str:
+    if isinstance(entity, WorkOrder):
+        return "work_order"
+    if isinstance(entity, Inspection):
+        return "inspection"
+    return "invoice"
+
+
 def issue_version(db: Session, user: User | None, entity) -> DocumentVersion:
     """Snapshot and render the document as it stands now. Re-issuing unchanged content returns
     the existing version, so sending twice doesn't create two versions."""
@@ -95,14 +112,10 @@ def issue_version(db: Session, user: User | None, entity) -> DocumentVersion:
             return existing
         snap = snapshot_estimate(db, entity)
     else:
-        entity_type = "work_order" if isinstance(entity, WorkOrder) else "invoice"
+        entity_type = _entity_type(entity)
         latest = _latest_issued(db, entity_type, entity.id)
         version = (latest.version + 1) if latest else 1
-        snap = (
-            snapshot_work_order(db, entity, version)
-            if entity_type == "work_order"
-            else snapshot_invoice(db, entity, version)
-        )
+        snap = _SNAPSHOTS[entity_type](db, entity, version)
         if latest and material_fingerprint(latest.content) == material_fingerprint(snap):
             return latest
 
@@ -362,8 +375,8 @@ def authorization_state(db: Session, entity_type: str, entity) -> dict:
             "authorization_id": None,
         }
     changed = False
-    if entity_type == "work_order":
-        current = snapshot_work_order(db, entity, 0)
+    if entity_type in ("work_order", "inspection"):
+        current = _SNAPSHOTS[entity_type](db, entity, 0)
         changed = material_fingerprint(current) != material_fingerprint(auth.version.content)
     status = auth.decision
     if changed:

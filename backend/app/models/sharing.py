@@ -24,11 +24,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, IdMixin
 
-DOC_ENTITY_TYPES = ("estimate", "work_order", "invoice", "receipt")
+DOC_ENTITY_TYPES = ("estimate", "work_order", "invoice", "receipt", "inspection")
 VERSION_KINDS = ("issued", "signed")
 DECISIONS = ("approved", "declined")
 AUTH_METHODS = ("drawn", "typed", "link", "in_person", "phone", "email", "text")
-LINK_PURPOSES = ("estimate", "work_order", "invoice")
+LINK_PURPOSES = ("estimate", "work_order", "invoice", "inspection")
 INQUIRY_KINDS = ("contact", "question")
 
 

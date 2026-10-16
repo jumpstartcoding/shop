@@ -76,6 +76,7 @@ class BusinessUpdate(BaseModel):
     invoice_due_days: Annotated[int, Field(ge=0, le=120)] | None = None
     estimate_valid_days: Annotated[int, Field(ge=1, le=365)] | None = None
     authorization_statement: ShortText(2000) = None
+    inspection_statement: ShortText(2000) = None
     allow_typed_signature: bool | None = None
     invoice_footer: ShortText(2000) = None
     terms_text: ShortText(5000) = None
@@ -131,6 +132,7 @@ class BusinessOut(ORMModel):
     invoice_due_days: int
     estimate_valid_days: int
     authorization_statement: str
+    inspection_statement: str
     allow_typed_signature: bool
     invoice_footer: str | None
     terms_text: str | None

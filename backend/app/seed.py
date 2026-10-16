@@ -5,7 +5,7 @@ placeholders to replace in Settings. Run with `uv run python -m app.tasks seed-d
 The demo walks one repair through the whole workflow so every screen has something on it.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -23,7 +23,7 @@ from app.schemas.documents import (
     PaymentIn,
     WorkOrderCreate,
 )
-from app.services import workflow
+from app.services import history, inspections, workflow
 from app.services.business import get_business
 
 DEMO_EMAIL = "demo@example.com"
@@ -250,6 +250,49 @@ def seed_demo() -> dict:
             ),
         )
         workflow.change_work_order_status(db, user, wo, "diagnosing", False)
+
+        # Digital inspection with traffic-light findings (no demo photos: the camera adds
+        # real ones).
+        insp = inspections.start(db, user, wo)
+        findings = {
+            "Brakes": (
+                "urgent",
+                "Front pads at 2 mm. Front rotors below minimum thickness and warped, "
+                "which causes the shake when braking.",
+                "Replace front pads and rotors",
+                63000,
+            ),
+            "Tires": (
+                "monitor",
+                "Rear tires at 4/32 in. Plan on replacing within 6 months.",
+                None,
+                None,
+            ),
+            "Fluids": ("monitor", "Brake fluid is dark.", "Brake fluid flush at next visit", 11000),
+        }
+        for it in insp.items:
+            status, notes, rec, cost = findings.get(it.category, ("good", None, None, None))
+            inspections.update_item(
+                db,
+                user,
+                it,
+                {
+                    "status": status,
+                    "notes": notes,
+                    "recommendation": rec,
+                    "estimated_cost_cents": cost,
+                },
+            )
+        inspections.update(
+            db,
+            user,
+            insp,
+            {
+                "summary": "Front brakes need replacing now. Everything else is in good shape; "
+                "keep an eye on the rear tires.",
+                "status": "completed",
+            },
+        )
         est = workflow.create_estimate(
             db,
             user,
@@ -262,6 +305,7 @@ def seed_demo() -> dict:
             ),
         )
         assert est.total_cents == 65000, est.total_cents
+        est.inspection_id = insp.id
         workflow.mark_estimate_sent(db, user, est)
         workflow.record_estimate_decision(
             db,
@@ -296,6 +340,18 @@ def seed_demo() -> dict:
         }
         workflow.change_work_order_status(db, user, wo, "ready_for_pickup", False)
         workflow.change_work_order_status(db, user, wo, "completed", False)
+        history.add_manual(
+            db,
+            user,
+            accord,
+            {
+                "service_date": date(2026, 4, 18),
+                "mileage": 55020,
+                "summary": "Oil and filter change, tire rotation",
+                "performed_by": "Previous shop",
+                "notes": "From the customer's paper records.",
+            },
+        )
 
         # --- An open job waiting on approval
         maria = _customer(

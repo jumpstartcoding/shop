@@ -3,7 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Estimate, Invoice, WorkOrder
+from app.models import Estimate, Inspection, Invoice, WorkOrder
 from app.schemas.documents import (
     EstimateOut,
     InvoiceOut,
@@ -42,6 +42,7 @@ def work_order_out(db: Session, wo: WorkOrder) -> WorkOrderOut:
         db.scalars(select(Invoice.id).where(Invoice.work_order_id == wo.id).order_by(Invoice.id))
     )
     out.authorization = documents.authorization_state(db, "work_order", wo)
+    out.inspection_id = db.scalar(select(Inspection.id).where(Inspection.work_order_id == wo.id))
     out.estimate_ids = list(
         db.scalars(select(Estimate.id).where(Estimate.work_order_id == wo.id).order_by(Estimate.id))
     )

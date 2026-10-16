@@ -165,6 +165,11 @@ function BusinessForm({ business }: { business: Business }) {
             </Field>
           </div>
           <div className="sm:col-span-3">
+            <Field label="Inspection report acknowledgement" hint="What the customer agrees to when signing an inspection report. It confirms they received it; it doesn't authorize work.">
+              {(p) => <textarea {...p} className="field min-h-16" {...text("inspection_statement")} />}
+            </Field>
+          </div>
+          <div className="sm:col-span-3">
             <Field label="Invoice footer" hint="Warranty terms, thank-you note.">{(p) => <textarea {...p} className="field min-h-16" {...text("invoice_footer")} />}</Field>
           </div>
           <div className="sm:col-span-3">

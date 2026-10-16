@@ -143,6 +143,7 @@ class WorkOrderOut(TotalsOut):
     promised_at: datetime | None
     qc_checklist: dict
     completed_at: datetime | None
+    inspection_id: int | None = None
     created_at: datetime
     updated_at: datetime
     party: PartyOut | None = None
@@ -187,6 +188,8 @@ class EstimateCreate(BaseModel):
 
 class EstimateUpdate(BaseModel):
     concern: ShortText(5000) = None
+    # Show this inspection's findings and photos with the estimate (null to detach).
+    inspection_id: int | None = None
     customer_notes: ShortText(5000) = None
     internal_notes: ShortText(5000) = None
     mileage: Annotated[int, Field(ge=0, le=5_000_000)] | None = None
@@ -207,6 +210,7 @@ class EstimateOut(TotalsOut):
     customer_id: int
     vehicle_id: int
     work_order_id: int | None
+    inspection_id: int | None = None
     concern: str | None
     customer_notes: str | None
     internal_notes: str | None

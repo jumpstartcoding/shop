@@ -33,6 +33,10 @@ PASSWORD = "correct-horse-battery"
 EMAIL = "owner@example.com"
 
 TABLES = [
+    "service_records",
+    "photos",
+    "inspection_items",
+    "inspections",
     "stripe_events",
     "authorizations",
     "access_tokens",
