@@ -6,16 +6,20 @@ Fonts are bundled (Barlow, SIL OFL) so documents look the same on a laptop and o
 import base64
 import hashlib
 import logging
+import sys
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 
+import structlog
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from app.core.errors import AppError
 from app.core.storage import get_storage
 
 HERE = Path(__file__).parent
 # WeasyPrint warns about its font-subsetting fallback on every render; it isn't actionable.
+log = structlog.get_logger()
 logging.getLogger("weasyprint").setLevel(logging.ERROR)
 logging.getLogger("fontTools").setLevel(logging.ERROR)
 METHOD_LABEL = {
@@ -108,8 +112,31 @@ def render_html(snapshot: dict, signature: dict | None = None) -> str:
     )
 
 
+def _weasyprint_html():
+    """WeasyPrint loads Pango and GObject from the operating system when first imported. If
+    they're missing, fail with a message that says what to install instead of a bare 500."""
+    try:
+        from weasyprint import HTML
+    except OSError as exc:
+        if sys.platform == "darwin":
+            fix = (
+                "On a Mac: run `brew install pango`, then start the server with "
+                "`export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` set in the same terminal."
+            )
+        else:
+            fix = "On Debian/Ubuntu: `apt install libpango-1.0-0 libpangoft2-1.0-0`."
+        log.error("pdf_engine_unavailable", error=str(exc))
+        raise AppError(
+            "PDFs can't be made on this computer because WeasyPrint's text libraries "
+            f"(Pango) weren't found. Nothing was sent or saved. {fix}",
+            status_code=503,
+            code="pdf_unavailable",
+        ) from exc
+    return HTML
+
+
 def render_pdf(snapshot: dict, signature: dict | None = None) -> bytes:
-    from weasyprint import HTML
+    HTML = _weasyprint_html()  # noqa: N806
 
     html = render_html(snapshot, signature)
     return HTML(string=html, base_url=str(HERE)).write_pdf()

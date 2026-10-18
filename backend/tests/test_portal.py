@@ -233,3 +233,31 @@ def test_appointment_follows_its_work_order(client, customer, vehicle):
     assert status() == "completed"
     client.post(f"/api/work-orders/{wo['id']}/status", json={"status": "in_repair"})
     assert status() == "in_progress"
+
+
+def test_missing_pdf_libraries_give_a_clear_error(client, customer, vehicle, monkeypatch):
+    """A Mac without Pango: the request fails cleanly with what to install, and saves nothing."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_weasyprint(name, *args, **kwargs):
+        if name == "weasyprint":
+            raise OSError("cannot load library 'libgobject-2.0-0'")
+        return real_import(name, *args, **kwargs)
+
+    wo = client.post(
+        "/api/work-orders",
+        json={"customer_id": customer["id"], "vehicle_id": vehicle["id"], "concern": "Noise"},
+    ).json()
+    monkeypatch.setattr(builtins, "__import__", no_weasyprint)
+    r = client.post(f"/api/work-orders/{wo['id']}/send-authorization", json={"email": False})
+    monkeypatch.setattr(builtins, "__import__", real_import)
+    assert r.status_code == 503
+    assert (
+        r.json()["error"]["code"] == "pdf_unavailable" and "pango" in r.json()["error"]["message"]
+    )
+    trail = client.get(
+        "/api/documents", params={"entity_type": "work_order", "entity_id": wo["id"]}
+    )
+    assert trail.status_code == 200 and trail.json()["versions"] == []

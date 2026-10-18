@@ -165,7 +165,15 @@ uv run uvicorn app.main:app --reload
 
 Then open http://localhost:8000/api/docs for the interactive API documentation.
 
-PDFs need WeasyPrint's system libraries. On a Mac: `brew install pango`. On Debian/Ubuntu: `apt install libpango-1.0-0 libpangoft2-1.0-0`. With `EMAIL_BACKEND=file`, "sent" emails appear as `.eml` files in `backend/.files/outbox`.
+PDFs need WeasyPrint's system libraries. On a Mac, install them with Homebrew, then tell macOS where Homebrew keeps them. On Apple Silicon that's `/opt/homebrew/lib`, which Python doesn't search by default; without this step, sending or printing anything fails with `cannot load library 'libgobject-2.0-0'`:
+
+```bash
+brew install pango
+echo 'export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib' >> ~/.zshrc   # once
+source ~/.zshrc                                                           # then restart uvicorn
+```
+
+(Intel Macs use `/usr/local/lib`, which is searched already, so `brew install pango` is enough.) On Debian/Ubuntu: `apt install libpango-1.0-0 libpangoft2-1.0-0`. With `EMAIL_BACKEND=file`, "sent" emails appear as `.eml` files in `backend/.files/outbox`.
 
 In a second terminal, start the admin app (Node 20+):
 
