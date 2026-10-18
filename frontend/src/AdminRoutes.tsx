@@ -3,7 +3,7 @@ import { Layout } from "./components/Layout";
 import { RequireAuth } from "./lib/auth";
 import { Board } from "./pages/Board";
 import { Calendar } from "./pages/Calendar";
-import { CustomerDetailPage, CustomerList, NewCustomer } from "./pages/Customers";
+import { CustomerDetailPage, CustomerList, NewVehicle, NewCustomer } from "./pages/Customers";
 import { Dashboard } from "./pages/Dashboard";
 import { EstimateList, EstimatePage, NewEstimate } from "./pages/Estimates";
 import { ExpensesPage } from "./pages/Expenses";
@@ -35,6 +35,7 @@ export default function AdminRoutes() {
         <Route path="customers" element={<CustomerList />} />
         <Route path="customers/new" element={<NewCustomer />} />
         <Route path="customers/:id" element={<CustomerDetailPage />} />
+        <Route path="vehicles/new" element={<NewVehicle />} />
         <Route path="vehicles/:id" element={<VehiclePage />} />
         <Route path="work-orders/new" element={<NewWorkOrder />} />
         <Route path="work-orders/:id" element={<WorkOrderPage />} />

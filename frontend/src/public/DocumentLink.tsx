@@ -19,7 +19,7 @@ type Finding = {
 type Doc = {
   doc_type: "estimate" | "work_order" | "invoice" | "inspection";
   title: string; number: string; version: number | null; date: string; expires_on?: string; due_date?: string;
-  business: { name: string; phone: string | null; email: string | null; address: string[] };
+  business: { name: string; phone: string | null; email: string | null; address: string[]; labor_rate_cents?: number | null };
   customer: { name: string };
   vehicle: { description: string; vin: string | null; plate: string | null; mileage: number | null };
   concern: string | null; notes: string | null; items?: Item[];
@@ -31,8 +31,19 @@ type Doc = {
   amount_paid_cents?: number; balance_cents?: number;
   payments?: { date: string; method: string; amount_cents: number; reference: string | null }[];
 };
+type HistoryDoc = {
+  doc_type: "history"; title: string; date: string;
+  business: { name: string; phone: string | null };
+  customer: { name: string };
+  vehicle: { description: string; vin: string | null; plate: string | null; mileage: number | null };
+  records: { date: string; mileage: number | null; summary: string; by_this_shop: boolean; performed_by: string | null; total_cents: number | null; invoice_id: number | null; invoice_number: string | null }[];
+  warranties: { description: string; service_date: string; expires_on: string | null; expires_mileage: number | null; state: "active" | "expired" | "see_notes"; notes: string | null }[];
+  appointments: { starts_at: string | null; preferred_date: string | null; status: string; service: string | null }[];
+  reminders: { title: string; due_date: string | null; due_mileage: number | null }[];
+  invoices: { id: number; number: string; date: string; total_cents: number; balance_cents: number; status: string }[];
+};
 type View = {
-  purpose: "estimate" | "work_order" | "invoice" | "inspection";
+  purpose: "estimate" | "work_order" | "invoice" | "inspection" | "history";
   shop: { name: string; phone: string | null; email: string | null };
   document: Doc;
   state: {
@@ -80,6 +91,7 @@ export function DocumentLink() {
     );
   }
 
+  if (data.purpose === "history") return <HistoryPage shop={data.shop} doc={data.document as unknown as HistoryDoc} token={token!} />;
   const d = data.document;
   const pdf = `/api/public/links/${token}/pdf`;
   return (
@@ -95,7 +107,7 @@ export function DocumentLink() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl space-y-4 px-4 pt-5">
+      <main className="mx-auto max-w-3xl space-y-4 px-4 pt-5">
         <div>
           <p className="text-steel-2">For {d.customer.name}</p>
           <h1 className="font-display text-4xl leading-tight font-bold">{d.title}</h1>
@@ -145,7 +157,7 @@ export function DocumentLink() {
                   <p><span className="mr-2 text-[14px] font-semibold text-steel-2">{li.kind_label}</span>{li.description}</p>
                   <p className="text-[15px] text-steel-2">
                     {[
-                      li.kind === "labor" ? `${Number(li.quantity)} h at ${money(li.unit_price_cents)}/h` : Number(li.quantity) !== 1 ? `${Number(li.quantity)} × ${money(li.unit_price_cents)}` : null,
+                      li.kind === "labor" ? (isFlat(li, d.business) ? "Flat rate" : `${Number(li.quantity)} h at ${money(li.unit_price_cents)}/h`) : Number(li.quantity) !== 1 ? `${Number(li.quantity)} × ${money(li.unit_price_cents)}` : null,
                       li.warranty && `Warranty ${li.warranty}`,
                     ].filter(Boolean).join(", ")}
                   </p>
@@ -185,7 +197,7 @@ export function DocumentLink() {
           Download PDF
         </a>
         {d.terms && <p className="text-[15px] whitespace-pre-wrap text-steel-2">{d.terms}</p>}
-      </div>
+      </main>
     </div>
   );
 }
@@ -520,4 +532,129 @@ function Question({ token }: { token: string }) {
       <Button type="submit" busy={ask.isPending}>Send question</Button>
     </form>
   );
+}
+
+/** A customer's own record of one vehicle: what's been done, what's covered, what's next. */
+function HistoryPage({ shop, doc, token }: { shop: View["shop"]; doc: HistoryDoc; token: string }) {
+  const v = doc.vehicle;
+  return (
+    <div className="min-h-dvh bg-concrete pb-16">
+      <header className="bg-steel text-white">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-2 px-4 py-4">
+          <p className="font-display text-2xl font-bold">{shop.name}</p>
+          {shop.phone && <a href={phoneHref(shop.phone)} className="min-h-12 content-center font-semibold text-safety">Call {shop.phone}</a>}
+        </div>
+      </header>
+      <main className="mx-auto max-w-3xl space-y-4 px-4 pt-5">
+        <div>
+          <p className="text-steel-2">For {doc.customer.name}</p>
+          <h1 className="font-display text-4xl leading-tight font-bold">{v.description}</h1>
+          <p className="text-steel-2">
+            {[v.plate, v.vin && `VIN ${v.vin}`, v.mileage !== null && `${v.mileage.toLocaleString()} mi last recorded`].filter(Boolean).join(", ")}
+          </p>
+        </div>
+
+        {(doc.appointments.length > 0 || doc.reminders.length > 0) && (
+          <section className="rounded-lg bg-steel px-4 py-4 text-white">
+            <h2 className="font-display text-2xl font-semibold">Coming up</h2>
+            <ul className="mt-2 space-y-1">
+              {doc.appointments.map((a, i) => (
+                <li key={`a${i}`}>
+                  <span className="font-semibold text-safety">{a.starts_at ? dateTime(a.starts_at) : a.preferred_date ? `Requested for ${date(a.preferred_date)}` : "Requested"}</span>
+                  {a.service && `: ${a.service}`}{a.status === "requested" && " (waiting for the shop to confirm)"}
+                </li>
+              ))}
+              {doc.reminders.map((r, i) => (
+                <li key={`r${i}`}>
+                  {r.title} due {[r.due_date && `around ${date(r.due_date)}`, r.due_mileage && `at ${r.due_mileage.toLocaleString()} mi`].filter(Boolean).join(" or ")}
+                </li>
+              ))}
+            </ul>
+            <a href="/book" className="mt-3 inline-flex min-h-12 items-center rounded-md border border-safety-deep bg-safety px-5 font-semibold text-steel">Book a visit</a>
+          </section>
+        )}
+
+        <section className="rounded-lg border border-line bg-sheet">
+          <h2 className="border-b border-line px-4 py-3 font-display text-2xl font-semibold">Service history</h2>
+          {doc.records.length === 0 ? <p className="px-4 py-4 text-steel-2">No service recorded yet.</p> : (
+            <ol>
+              {doc.records.map((r, i) => (
+                <li key={i} className="border-b border-line px-4 py-3 last:border-0">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+                    <p className="font-semibold">{date(r.date)}{r.mileage !== null && <span className="ml-2 font-normal text-steel-2">{r.mileage.toLocaleString()} mi</span>}</p>
+                    {r.total_cents !== null && <p className="num text-lg">{money(r.total_cents)}</p>}
+                  </div>
+                  <p>{r.summary}</p>
+                  <p className="text-[15px] text-steel-2">
+                    {r.by_this_shop ? shop.name : r.performed_by ?? "From earlier records"}
+                    {r.invoice_id && (
+                      <>{", "}<a className="underline underline-offset-4" target="_blank" rel="noopener" href={`/api/public/links/${token}/invoices/${r.invoice_id}/pdf`}>invoice {r.invoice_number}</a></>
+                    )}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+
+        {doc.warranties.length > 0 && (
+          <section className="rounded-lg border border-line bg-sheet">
+            <h2 className="border-b border-line px-4 py-3 font-display text-2xl font-semibold">Warranties</h2>
+            <ul>
+              {doc.warranties.map((w, i) => (
+                <li key={i} className="flex items-start gap-3 border-b border-line px-4 py-3 last:border-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{w.description}</p>
+                    <p className="text-[15px] text-steel-2">
+                      {[`Installed ${date(w.service_date)}`, w.expires_on && `covered until ${date(w.expires_on)}`, w.expires_mileage && `or ${w.expires_mileage.toLocaleString()} mi`].filter(Boolean).join(", ")}
+                    </p>
+                    {w.notes && <p className="text-[15px]">{w.notes}</p>}
+                  </div>
+                  <span className={`rounded px-2 py-0.5 text-[14px] font-semibold ${w.state === "active" ? "bg-go-wash text-go" : "bg-concrete text-steel-2"}`}>
+                    {w.state === "active" ? "Active" : w.state === "expired" ? "Expired" : "See notes"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {doc.invoices.length > 0 && (
+          <section className="rounded-lg border border-line bg-sheet">
+            <h2 className="border-b border-line px-4 py-3 font-display text-2xl font-semibold">Invoices</h2>
+            <ul>
+              {doc.invoices.map((inv) => (
+                <li key={inv.id}>
+                  <a href={`/api/public/links/${token}/invoices/${inv.id}/pdf`} target="_blank" rel="noopener"
+                    className="flex min-h-14 items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-concrete/60">
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">{inv.number}</span>
+                      <span className="block text-[15px] text-steel-2">{date(inv.date)}</span>
+                    </span>
+                    <span className="text-right">
+                      <span className="num block">{money(inv.total_cents)}</span>
+                      <span className={`block text-[14px] ${inv.balance_cents > 0 ? "font-semibold text-signal" : "text-go"}`}>
+                        {inv.balance_cents > 0 ? `${money(inv.balance_cents)} due` : "Paid"}
+                      </span>
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <Question token={token} />
+        <a href={`/api/public/links/${token}/pdf`} target="_blank" rel="noopener" className="inline-flex min-h-12 items-center rounded-md border border-steel bg-sheet px-5 font-semibold">
+          Download as PDF
+        </a>
+        <p className="text-[15px] text-steel-2">This page stays up to date as work is done. Keep the link handy, for example when you sell the vehicle.</p>
+      </main>
+    </div>
+  );
+}
+
+/** One "hour" of labor at something other than the shop's rate is a flat-priced job. */
+function isFlat(li: { quantity: string | number; unit_price_cents: number }, business: { labor_rate_cents?: number | null }) {
+  return Number(li.quantity) === 1 && business.labor_rate_cents != null && li.unit_price_cents !== business.labor_rate_cents;
 }

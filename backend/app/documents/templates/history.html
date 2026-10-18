@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ doc.title }} {{ doc.vehicle.description }}</title>
+<link rel="stylesheet" href="templates/base.css">
+</head>
+<body>
+<div class="docid">{{ doc.business.name }}  |  {{ doc.title }}, {{ doc.vehicle.description }}, as of {{ doc.date | date }}</div>
+{% include "_header.html" %}
+
+<div class="parties">
+  <div>
+    <div class="label">Owner</div>
+    <strong>{{ doc.customer.name }}</strong>
+  </div>
+  <div>
+    <div class="label">Vehicle</div>
+    <strong>{{ doc.vehicle.description }}</strong>
+    {% if doc.vehicle.vin %}<div>VIN <span class="num">{{ doc.vehicle.vin }}</span></div>{% endif %}
+    {% if doc.vehicle.plate %}<div>Plate {{ doc.vehicle.plate }}</div>{% endif %}
+    {% if doc.vehicle.mileage is not none %}<div>Last recorded mileage {{ "{:,}".format(doc.vehicle.mileage) }}</div>{% endif %}
+  </div>
+</div>
+
+<h2 class="section">Service history</h2>
+<table class="lines">
+  <thead><tr><th>Date</th><th class="r">Mileage</th><th>Work done</th><th class="r">Total</th></tr></thead>
+  <tbody>
+  {% for r in doc.records %}
+    <tr>
+      <td class="num" style="white-space:nowrap">{{ r.date | date }}</td>
+      <td class="r num">{% if r.mileage is not none %}{{ "{:,}".format(r.mileage) }}{% endif %}</td>
+      <td>{{ r.summary }}
+        <div class="small muted">{% if r.by_this_shop %}{{ doc.business.name }}{% if r.invoice_number %}, invoice {{ r.invoice_number }}{% endif %}{% else %}{{ r.performed_by or "Recorded from earlier records" }}{% endif %}</div>
+      </td>
+      <td class="r num">{% if r.total_cents is not none %}{{ r.total_cents | money }}{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="muted">No service recorded yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if doc.warranties %}
+<h2 class="section">Warranties</h2>
+<table class="lines">
+  <thead><tr><th>Part or repair</th><th>Installed</th><th>Covered until</th><th class="r">Status</th></tr></thead>
+  <tbody>
+  {% for w in doc.warranties %}
+    <tr>
+      <td>{{ w.description }}{% if w.notes %}<div class="small muted">{{ w.notes }}</div>{% endif %}</td>
+      <td class="num">{{ w.service_date | date }}</td>
+      <td>{% if w.expires_on %}{{ w.expires_on | date }}{% endif %}{% if w.expires_on and w.expires_mileage %} or {% endif %}{% if w.expires_mileage %}{{ "{:,}".format(w.expires_mileage) }} mi{% endif %}</td>
+      <td class="r">{{ {"active": "Active", "expired": "Expired", "see_notes": "See notes"}[w.state] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if doc.reminders %}
+<h2 class="section">Coming up</h2>
+{% for r in doc.reminders %}
+<div>{{ r.title }}{% if r.due_date %}, around {{ r.due_date | date }}{% endif %}{% if r.due_mileage %}{% if r.due_date %} or{% else %},{% endif %} at {{ "{:,}".format(r.due_mileage) }} miles{% endif %}</div>
+{% endfor %}
+{% endif %}
+
+<div class="footer-note small muted">Prepared by {{ doc.business.name }} from its records{% if doc.business.phone %}. Questions: {{ doc.business.phone }}{% endif %}.</div>
+</body>
+</html>

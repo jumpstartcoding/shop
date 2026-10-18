@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type FormEvent, useCallback, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DocumentList } from "../components/DocumentList";
 import { LineItems } from "../components/LineItems";
@@ -62,7 +62,14 @@ const METHOD_LABEL: Record<string, string> = { cash: "Cash", check: "Check", car
 
 export function InvoicePage() {
   const id = Number(useParams().id);
-  const [modal, setModal] = useState<null | "pay" | "void" | "edit" | { voidPayment: Payment } | { refundPayment: Payment }>(null);
+  const [params, setParams] = useSearchParams();
+  // "Record payment" from the dashboard lands here with ?pay=1 and opens the payment form.
+  const [modal, setModal] = useState<null | "pay" | "void" | "edit" | { voidPayment: Payment } | { refundPayment: Payment }>(
+    () => (params.get("pay") ? "pay" : null),
+  );
+  useEffect(() => {
+    if (params.get("pay")) setParams({}, { replace: true });
+  }, [params, setParams]);
   const { data: inv, error, isLoading } = useQuery({
     queryKey: ["invoice", id],
     queryFn: () => api.get<Invoice>(`/invoices/${id}`),

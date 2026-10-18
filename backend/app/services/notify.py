@@ -48,6 +48,13 @@ DEFAULTS: dict[str, tuple[str, str, str]] = {
         "soon; yellow ones are worth watching. Questions? Reply on that page or call us at "
         "{shop_phone}.\n\n{shop_name}",
     ),
+    "service_history": (
+        "Service history link",
+        "Your {vehicle}'s service record from {shop_name}",
+        "Hi {customer_first_name},\n\nHere's the service history for your {vehicle}: everything "
+        "we've done, active warranties, what's coming up, and your invoices.\n{link}\n\nKeep "
+        "this link; it stays up to date. Questions? Call us at {shop_phone}.\n\n{shop_name}",
+    ),
     "estimate_approved": (
         "Thanks for approving",
         "Thanks for approving estimate {document_number}",

@@ -87,8 +87,12 @@
       <td><span class="kind">{{ li.kind_label }}</span>{{ li.description }}
         {% if li.part_number or li.warranty %}<div class="small muted">{% if li.part_number %}Part # {{ li.part_number }}{% endif %}{% if li.part_number and li.warranty %}, {% endif %}{% if li.warranty %}Warranty {{ li.warranty }}{% endif %}</div>{% endif %}
       </td>
+      {% if li.kind == "labor" and li.quantity | float == 1 and doc.business.labor_rate_cents is defined and li.unit_price_cents != doc.business.labor_rate_cents %}
+      <td class="r" colspan="2">Flat rate</td>
+      {% else %}
       <td class="r num">{{ li.quantity | qty }}</td>
       <td class="r num">{{ li.unit_price_cents | money }}</td>
+      {% endif %}
       <td class="r num">{% if li.kind == "discount" %}-{% endif %}{{ li.line_total_cents | money }}</td>
     </tr>
   {% else %}

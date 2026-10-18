@@ -12,9 +12,44 @@ from app.core.errors import NotFound
 from app.db import get_db
 from app.models import ServiceRecord, User, Vehicle
 from app.schemas.common import ShortText, _strip
-from app.services import history, workflow
+from app.services import documents, history, notify, workflow
 
 router = APIRouter(tags=["service history"])
+
+
+class ShareIn(BaseModel):
+    email: bool = True
+
+
+@router.post("/vehicles/{vehicle_id}/share-history")
+def share_history(
+    vehicle_id: int,
+    data: ShareIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """A private link (good for a year) where the customer sees this vehicle's service
+    history, warranties, upcoming appointments and reminders, and invoices."""
+    v = workflow.get_or_404(db, Vehicle, vehicle_id, "Vehicle")
+    url = documents.create_link(db, user, purpose="history", entity=v, version=None, days=365)
+    db.commit()
+    email = None
+    if data.email:
+        c = v.customer
+        email = notify.send_templated(
+            db,
+            "service_history",
+            c.email,
+            {
+                "customer_first_name": c.first_name,
+                "customer_name": c.full_name,
+                "vehicle": v.display_name,
+                "link": url,
+            },
+            entity_type="vehicle",
+            entity_id=v.id,
+        ).as_dict()
+    return {"link": url, "email": email}
 
 
 @router.get("/vehicles/{vehicle_id}/service-history")

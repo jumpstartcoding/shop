@@ -55,6 +55,12 @@ def link_pdf(token: str, db: Session = Depends(get_db)):
     return pdf_response(data, name)
 
 
+@router.get("/links/{token}/invoices/{invoice_id}/pdf")
+def link_history_invoice(token: str, invoice_id: int, db: Session = Depends(get_db)):
+    data, name = customer_links.history_invoice_pdf(db, token, invoice_id)
+    return pdf_response(data, name)
+
+
 @router.get("/links/{token}/photos/{photo_id}")
 def link_photo(
     token: str,

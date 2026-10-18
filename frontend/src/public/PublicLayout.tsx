@@ -71,10 +71,10 @@ export function PublicLayout() {
 
       {/* Phones: call and book always one thumb away. */}
       {shop?.phone && (
-        <div className="sticky bottom-0 z-30 grid grid-cols-2 border-t border-steel bg-steel pb-[env(safe-area-inset-bottom)] md:hidden">
+        <nav aria-label="Call or book" className="sticky bottom-0 z-30 grid grid-cols-2 border-t border-steel bg-steel pb-[env(safe-area-inset-bottom)] md:hidden">
           <a href={phoneHref(shop.phone)} className="flex min-h-14 items-center justify-center font-semibold text-white">Call the shop</a>
           <Link to="/book" className="flex min-h-14 items-center justify-center bg-safety font-semibold">Book</Link>
-        </div>
+        </nav>
       )}
 
       <footer className="bg-steel text-white">

@@ -9,7 +9,7 @@ Rules that protect money and records live here, not in the routers:
 from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core import audit
 from app.core.errors import AppError, Conflict, NotFound
@@ -175,6 +175,20 @@ def create_work_order(db: Session, user: User, data: WorkOrderCreate) -> WorkOrd
     return wo
 
 
+def _sync_appointments(db: Session, wo: WorkOrder) -> None:
+    """Keep the booking that brought the car in in step with the job, so a finished job
+    doesn't linger on the calendar as "checked in"."""
+    if wo.status == "completed":
+        target, sources = "completed", ("checked_in", "in_progress")
+    elif wo.status in ("new", "checked_in", "cancelled"):
+        return
+    else:
+        target, sources = "in_progress", ("checked_in", "completed")
+    for appt in db.scalars(select(Appointment).where(Appointment.work_order_id == wo.id)):
+        if appt.status in sources:
+            appt.status = target
+
+
 def ensure_work_order_editable(wo: WorkOrder) -> None:
     if wo.status in TERMINAL_WO:
         raise Conflict(
@@ -208,6 +222,7 @@ def change_work_order_status(
     if status == "completed":
         history.record_completion(db, wo)
         stock.take_for_completed(db, user, wo)
+    _sync_appointments(db, wo)
     audit.record(
         db,
         user=user,
@@ -475,6 +490,13 @@ def settle_invoice_status(inv: Invoice, today: date) -> None:
     if inv.status == "void":
         return
     if inv.amount_paid_cents > 0 and inv.amount_paid_cents >= inv.total_cents:
+        session = object_session(inv)
+        if inv.paid_at is None and inv.work_order_id is not None and session is not None:
+            # Paid in full: tick "payment confirmed" on the job's completion checklist,
+            # as creating the invoice ticks "invoice generated".
+            wo = session.get(WorkOrder, inv.work_order_id)
+            if wo is not None:
+                wo.qc_checklist = {**wo.qc_checklist, "payment_confirmed": True}
         inv.status = "paid"
         inv.paid_at = inv.paid_at or _now()
         return

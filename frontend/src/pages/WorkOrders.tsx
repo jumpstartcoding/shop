@@ -232,19 +232,18 @@ export function WorkOrderPage() {
 
       <DocumentTrail entityType="work_order" entityId={id} />
 
-      {(wo.customer_notes || wo.internal_notes) && (
-        <Sheet title="Notes">
-          <div className="space-y-3 p-4">
-            {wo.customer_notes && (
-              <div className="border-l-4 border-go px-3 py-1">
-                <p className="text-[14px] font-semibold text-go">Customer-facing note (prints on documents)</p>
-                <p className="whitespace-pre-wrap">{wo.customer_notes}</p>
-              </div>
-            )}
-            <InternalNote>{wo.internal_notes}</InternalNote>
-          </div>
-        </Sheet>
-      )}
+      <Sheet title="Notes">
+        <div className="space-y-3 p-4">
+          {wo.customer_notes && (
+            <div className="border-l-4 border-go px-3 py-1">
+              <p className="text-[14px] font-semibold text-go">Customer-facing note (prints on documents)</p>
+              <p className="whitespace-pre-wrap">{wo.customer_notes}</p>
+            </div>
+          )}
+          <InternalNote>{wo.internal_notes}</InternalNote>
+          <QuickNote woId={wo.id} />
+        </div>
+      </Sheet>
 
       <Sheet title="Photos">
         <div className="p-4">
@@ -362,6 +361,27 @@ function StatusStepper({ current, onPick, busy }: { current: WorkOrderStatus; on
         )}
       </ol>
     </nav>
+  );
+}
+
+/** A timestamped line in the internal notes, for jotting things down as the job goes. */
+function QuickNote({ woId }: { woId: number }) {
+  const [text, setText] = useState("");
+  const add = useMutation({
+    mutationFn: () => api.post(`/work-orders/${woId}/notes`, { text }),
+    onSuccess: () => setText(""),
+  });
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) add.mutate(); }} className="space-y-2">
+      <label htmlFor={`note-${woId}`} className="block font-medium">Add an internal note</label>
+      <div className="flex gap-2">
+        <input id={`note-${woId}`} className="field flex-1" maxLength={2000} value={text} onChange={(e) => setText(e.target.value)}
+          placeholder="Front pads at 2 mm, rotors scored" />
+        <Button type="submit" busy={add.isPending} disabled={!text.trim()}>Add</Button>
+      </div>
+      <p className="text-[14px] text-steel-2">Saved with the date and time. Only you see these.</p>
+      <ErrorNote error={add.error} />
+    </form>
   );
 }
 

@@ -278,7 +278,7 @@ function ServiceModal({ service, onClose }: { service: Service | null; onClose: 
         <Field label="Name">{(p) => <input {...p} className="field" required value={name} onChange={(e) => setName(e.target.value)} />}</Field>
         <Field label="Category">{(p) => <input {...p} className="field" value={category} onChange={(e) => setCategory(e.target.value)} />}</Field>
         <Field label="Description">{(p) => <textarea {...p} className="field min-h-20" value={description} onChange={(e) => setDescription(e.target.value)} />}</Field>
-        <Field label="Starting price" hint="Leave blank to show no price.">{(p) => <input {...p} className="field num text-lg" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />}</Field>
+        <Field label="Starting price" hint="Shown on the website as “from” this price, and used as the flat price when you add this service to a job. Leave blank for no price.">{(p) => <input {...p} className="field num text-lg" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />}</Field>
         <label className="flex min-h-12 items-center gap-3"><input type="checkbox" className="h-6 w-6" checked={published} onChange={(e) => setPublished(e.target.checked)} /> Show on website</label>
         <div className="flex gap-2">
           <Button type="submit" variant="primary" className="flex-1" busy={save.isPending}>Save service</Button>

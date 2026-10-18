@@ -78,13 +78,24 @@ Setup, test cards, and the webhook events to register are in [docs/PAYMENTS.md](
 - **Service history:** every completed job becomes part of the vehicle's record (date, mileage, work, invoice, total, notes). Add past work done elsewhere by hand. Warranties from part and labor lines show as active or expired by date and mileage.
 
 ### What Phase 5 adds
-- **Parts list and suppliers:** parts with number, category, supplier, cost, customer price (or the shop's markup on cost), warranty, and an optional stock count with a reorder level. **From parts list** on any work order, estimate, or invoice fills the line in one tap. Stock comes out when the work order is completed and goes back if it's reopened; low stock shows on the Today screen. Suppliers keep phone, website, account number, and notes.
+- **Parts list and suppliers:** parts with number, category, supplier, cost, customer price (or the shop's markup on cost), warranty, and an optional stock count with a reorder level. **Parts or services list** on any work order, estimate, or invoice fills the line in one tap. Stock comes out when the work order is completed and goes back if it's reopened; low stock shows on the Today screen. Suppliers keep phone, website, account number, and notes.
 - **Expenses** by date, category (parts, tools, rent, utilities, insurance, advertising, software, supplies, other), and supplier, with a photo of the receipt and totals by category for any date range.
 - **Maintenance reminders:** set one from a vehicle or a finished work order (oil change, tire rotation, brake inspection, and more, with typical intervals filled in from today and the current mileage). Due reminders show on the Today screen and a Reminders page with call, text, and email buttons. Automatic reminder emails (once each, early morning) can be turned on in Settings.
 - **Nightly upkeep** also expires estimates past their valid-until date.
 - **Reports** for today, this week, this month, last month, this year, last year, or any range: money collected (by payment method and by day or month), invoiced labor, parts, fees, discounts and tax, average repair order, what's owed, and expenses. Clearly labeled as not tax or accounting advice.
 - **CSV export** of customers, vehicles, work orders, invoices, payments, expenses, parts, and service history, protected against spreadsheet formula injection.
 - **VIN lookup** through NHTSA's free vPIC service fills year, make, model, trim, engine, and transmission. Optional: if it's down, you type the details as before.
+
+### Pre-launch review
+A walk through the whole app against the spec, as the mechanic and as a customer, on a phone. Gaps it found and fixed:
+- **Quick actions on the Today screen** (§2, §44): find customer, record payment, and new customer, vehicle, appointment, work order, estimate, or invoice, one tap each. "New vehicle" asks whose it is first; "Record payment" asks which invoice and opens the payment form.
+- **Vehicle history link for customers** (§27): **Share history** on a vehicle sends the owner a private link (good for a year) showing past work, warranties, what's coming up, and their invoices as PDFs, plus a PDF of the whole record. Shop-only notes, part costs, and draft invoices are never on it. Sharing again replaces the old link.
+- **Timestamped notes during a repair** (§6): add a quick internal note on a work order from the phone; each is saved with the date and time and logged.
+- **Customer photos** (§28) on the customer page.
+- **Flat-rate services** (§31): Services in the "Parts or services list" picker adds a service as one labor line at its set price. A one-hour labor line at something other than the shop rate now reads "Flat rate" in the app, on the customer's page, and on PDFs, instead of "1 h at $480.00/h".
+- **Bookings follow their job:** an appointment moves to in progress and then completed with its work order, so a finished car no longer sits on the calendar as "checked in".
+- **"Payment confirmed" ticks itself** on the completion checklist when the invoice is paid in full, as "Invoice created" already did.
+- **Accessibility:** an axe-core scan (WCAG 2.1 AA) of 32 views (public site, every customer link page, and the admin screens, at phone size) now reports no issues. Fixes: page landmarks on the public and customer pages and sign-in, a muted text color raised to 4.5:1 contrast, and a name for photo links.
 
 ## V1 feature list
 
@@ -113,7 +124,10 @@ Also included: public website (services, about, contact, map, reviews), customer
 Honest edges of V1, each documented rather than faked:
 - **Email is the only automated channel.** No SMS service is built in; the app opens your phone's own texting app with the message filled in.
 - **One login, no two-factor sign-in.** See [docs/SECURITY.md](docs/SECURITY.md).
-- **No customer accounts.** Customers use private links for each document instead.
+- **No customer accounts.** Customers use private links for each document, and one per vehicle for its history.
+- **Terms and conditions are signed with estimates and work orders,** not as separate documents. The shop's terms print on, and are signed with, those documents.
+- **VINs are typed or pasted, not scanned.** Phone barcode scanning in the browser isn't reliable across devices yet; the VIN lookup fills the rest once it's entered.
+- **No photos on parts-list entries.** Photos attach to customers, vehicles, inspection items, work orders, estimates, and expenses.
 - **Receipts are photos.** PDF receipt files can't be attached to expenses.
 - **Stock is one count per part**, taken when a job is completed. No locations, purchase orders, or costing layers.
 - **Reports aren't accounting.** No profit-and-loss, sales-tax filing, or payroll.
@@ -177,7 +191,7 @@ uv run pytest                      # uses TEST_DATABASE_URL; the test database i
 uv run ruff check app tests migrations
 ```
 
-Tests run against real Postgres, not SQLite, so constraints, row locking, and numbering behave as they will in production. Covered: parts and stock, expenses, reminders, nightly upkeep, reports, CSV export, VIN lookup, photos (re-encoding, location stripping, limits), inspections and their reports, service history and warranties, pricing and tax math, authentication and CSRF, customer/vehicle rules, appointments, the estimate → work order → invoice → payment workflow, overpayment and edit-after-payment protection, concurrent invoice numbering, customer links, signatures and document versions, PDFs, email, Stripe webhooks and refunds, go-live checks, the Lambda entry point, and API-wide access rules.
+Tests run against real Postgres, not SQLite, so constraints, row locking, and numbering behave as they will in production. Covered: customer vehicle-history links, timestamped job notes, appointments following their work order, parts and stock, expenses, reminders, nightly upkeep, reports, CSV export, VIN lookup, photos (re-encoding, location stripping, limits), inspections and their reports, service history and warranties, pricing and tax math, authentication and CSRF, customer/vehicle rules, appointments, the estimate → work order → invoice → payment workflow, overpayment and edit-after-payment protection, concurrent invoice numbering, customer links, signatures and document versions, PDFs, email, Stripe webhooks and refunds, go-live checks, the Lambda entry point, and API-wide access rules.
 
 Go-live checks against your local setup: `uv run python -m app.tasks doctor`.
 

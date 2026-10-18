@@ -28,7 +28,7 @@ DOC_ENTITY_TYPES = ("estimate", "work_order", "invoice", "receipt", "inspection"
 VERSION_KINDS = ("issued", "signed")
 DECISIONS = ("approved", "declined")
 AUTH_METHODS = ("drawn", "typed", "link", "in_person", "phone", "email", "text")
-LINK_PURPOSES = ("estimate", "work_order", "invoice", "inspection")
+LINK_PURPOSES = ("estimate", "work_order", "invoice", "inspection", "history")
 INQUIRY_KINDS = ("contact", "question")
 
 

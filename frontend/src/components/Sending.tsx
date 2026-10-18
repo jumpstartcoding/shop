@@ -44,7 +44,7 @@ export function SendButton({
         <Modal title={label} onClose={() => setOpen(false)}>
           {!result ? (
             <div className="space-y-4">
-              <p>The customer gets a private link to review the {noun}{noun === "invoice" ? "" : noun === "inspection report" ? " with its photos and sign to acknowledge it" : ", sign, and approve it"} on their phone. No account needed.</p>
+              <p>The customer gets a private link to review the {noun}{noun === "invoice" ? "" : noun === "inspection report" ? " with its photos and sign to acknowledge it" : noun === "service history" ? ": past work, warranties, what's coming up, and invoices. The link stays up to date for a year" : ", sign, and approve it"} on their phone. No account needed.</p>
               {email ? (
                 <label className="flex min-h-12 items-center gap-3">
                   <input type="checkbox" className="h-6 w-6" checked={useEmail} onChange={(e) => setUseEmail(e.target.checked)} />

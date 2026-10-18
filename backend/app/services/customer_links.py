@@ -23,7 +23,7 @@ from app.models import (
     WorkOrder,
 )
 from app.schemas.public import QuestionIn, RespondIn
-from app.services import documents, notify
+from app.services import customer_history, documents, notify
 from app.services.business import get_business
 from app.services.payments import online_payments_available
 from app.services.photos import photo_ids_in
@@ -43,6 +43,14 @@ def view(db: Session, token: str) -> dict:
     link = documents.resolve_link(db, token, touch=True)
     business = get_business(db)
     shop = {"name": business.name, "phone": business.phone, "email": business.email}
+
+    if link.purpose == "history":
+        return {
+            "purpose": "history",
+            "shop": shop,
+            "document": _without_storage_keys(customer_history.snapshot(db, link)),
+            "state": {},
+        }
 
     if link.purpose == "invoice":
         inv = documents.invoice_link_entity(db, link)
@@ -273,6 +281,12 @@ def ask_question(db: Session, token: str, data: QuestionIn, *, ip: str | None) -
 
 def pdf_for_link(db: Session, token: str) -> tuple[bytes, str]:
     link = documents.resolve_link(db, token)
+    if link.purpose == "history":
+        from app.documents.render import render_pdf
+
+        snap = customer_history.snapshot(db, link)
+        name = "".join(c for c in snap["vehicle"]["description"] if c.isalnum() or c in " -")
+        return render_pdf(snap), f"service-history-{name.strip().replace(' ', '-')}.pdf"
     if link.purpose == "invoice":
         from app.documents.render import render_pdf
 
@@ -301,3 +315,14 @@ def photo_for_link(db: Session, token: str, photo_id: int, size: str) -> bytes:
     ):
         raise NotFound("Photo not found.")
     return get_storage().get(photo.thumb_key if size == "thumb" else photo.key)
+
+
+def history_invoice_pdf(db: Session, token: str, invoice_id: int) -> tuple[bytes, str]:
+    """An invoice for the vehicle on a service-history link."""
+    from app.documents.render import render_pdf
+
+    link = documents.resolve_link(db, token)
+    if link.purpose != "history":
+        raise NotFound("Invoice not found.")
+    inv = customer_history.invoice_for_link(db, link, invoice_id)
+    return render_pdf(snapshot_invoice(db, inv)), f"{inv.number}.pdf"

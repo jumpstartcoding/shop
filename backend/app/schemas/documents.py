@@ -117,11 +117,16 @@ class WorkOrderCreate(BaseModel):
 class WorkOrderUpdate(BaseModel):
     concern: ShortText(5000) = None
     customer_notes: ShortText(5000) = None
-    internal_notes: ShortText(5000) = None
+    # Longer than other notes: the running repair log below appends to it.
+    internal_notes: ShortText(20000) = None
     mileage_in: Annotated[int, Field(ge=0, le=5_000_000)] | None = None
     mileage_out: Annotated[int, Field(ge=0, le=5_000_000)] | None = None
     promised_at: datetime | None = None
     qc_checklist: dict[str, bool] | None = None
+
+
+class WorkOrderNoteIn(BaseModel):
+    text: Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=2000)]
 
 
 class StatusChange(BaseModel):

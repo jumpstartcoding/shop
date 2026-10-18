@@ -16,6 +16,8 @@ import {
   Sheet,
   StatusBadge,
 } from "../components/ui";
+import { PhotoStrip } from "../components/Photos";
+import { CustomerVehiclePicker } from "../components/Picker";
 import { VehicleFields, type VehicleDraft, emptyVehicle, vehiclePayload } from "../components/VehicleFields";
 import { api, fieldError } from "../lib/api";
 import { date, money, phoneHref } from "../lib/format";
@@ -43,7 +45,7 @@ export function CustomerList() {
       <PageHeader title="Customers" actions={<LinkButton to="/admin/customers/new" variant="primary">New customer</LinkButton>} />
       <div className="mb-3">
         <label htmlFor="cust-q" className="sr-only">Find a customer</label>
-        <input id="cust-q" type="search" className="field" placeholder="Name, phone, email, VIN, or plate"
+        <input id="cust-q" type="search" className="field" placeholder="Name, phone, email, VIN, or plate" autoFocus={params.get("find") === "1"}
           value={text} onChange={(e) => setText(e.target.value)} />
       </div>
       <Sheet>
@@ -244,7 +246,12 @@ export function NewCustomer() {
 export function CustomerDetailPage() {
   const id = Number(useParams().id);
   const [editing, setEditing] = useState(false);
-  const [addingVehicle, setAddingVehicle] = useState(false);
+  const [params, setParams] = useSearchParams();
+  // "New vehicle" from the dashboard picks the owner, then lands here with ?add_vehicle=1.
+  const [addingVehicle, setAddingVehicle] = useState(() => params.get("add_vehicle") === "1");
+  useEffect(() => {
+    if (params.get("add_vehicle")) setParams({}, { replace: true });
+  }, [params, setParams]);
   const { data: c, error, isLoading } = useQuery({
     queryKey: ["customer", id],
     queryFn: () => api.get<CustomerDetail>(`/customers/${id}`),
@@ -333,6 +340,13 @@ export function CustomerDetailPage() {
 
       {history && <HistorySheets history={history} />}
 
+      <Sheet title="Photos">
+        <div className="p-4">
+          <p className="mb-2 text-steel-2">A signed paper form, a note left with the keys: anything about the customer rather than one vehicle.</p>
+          <PhotoStrip entityType="customer" entityId={c.id} />
+        </div>
+      </Sheet>
+
       <Button variant={c.archived_at ? "secondary" : "danger"} busy={archive.isPending} onClick={() => archive.mutate()}>
         {c.archived_at ? "Restore customer" : "Archive customer"}
       </Button>
@@ -409,5 +423,22 @@ function AddVehicle({ customerId, onClose }: { customerId: number; onClose: () =
         <Button type="submit" variant="primary" busy={save.isPending} className="w-full">Add vehicle</Button>
       </form>
     </Modal>
+  );
+}
+
+/** "New vehicle" without a customer in hand: pick the owner first. */
+export function NewVehicle() {
+  const navigate = useNavigate();
+  return (
+    <div className="space-y-4">
+      <PageHeader title="New vehicle" sub="Whose vehicle is it? New customers get their vehicle on the new-customer form." />
+      <Sheet>
+        <div className="p-4">
+          <CustomerVehiclePicker customerId={null} vehicleId={null}
+            onChange={(c) => c && navigate(`/admin/customers/${c}?add_vehicle=1`, { replace: true })} />
+        </div>
+      </Sheet>
+      <LinkButton to="/admin/customers/new">New customer with a vehicle</LinkButton>
+    </div>
   );
 }

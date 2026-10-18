@@ -92,7 +92,9 @@ def render_html(snapshot: dict, signature: dict | None = None) -> str:
         except Exception:
             return None
 
-    template = "receipt.html" if snapshot["doc_type"] == "receipt" else "document.html"
+    template = {"receipt": "receipt.html", "history": "history.html"}.get(
+        snapshot["doc_type"], "document.html"
+    )
     return (
         _env()
         .get_template(template)

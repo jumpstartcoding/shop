@@ -30,7 +30,7 @@ Why each piece:
 
 | Piece | Choice | Why |
 |---|---|---|
-| Frontend | React + TypeScript + Vite + Tailwind, static build on S3 | No server to run. One app with three areas: public site, `/admin`, and customer link pages (`/e/:token`, `/i/:token`, …). |
+| Frontend | React + TypeScript + Vite + Tailwind, static build on S3 | No server to run. One app with three areas: public site, `/admin`, and customer link pages (`/d/:token`). |
 | API | FastAPI in a **container-image Lambda** (x86_64, Debian + Lambda runtime client), behind a Lambda Function URL | Pays per request; free tier covers a one-person shop. Container image because WeasyPrint (PDFs) needs Pango and HarfBuzz; Debian ships current builds. x86_64 so GitHub's standard runners build it natively (arm64 would save ~20% only beyond the free tier). |
 | Edge | CloudFront serving both `/` and `/api/*` | Same origin for the SPA and the API, so cookies are first-party, no CORS, one TLS certificate. |
 | Database | **Neon Postgres** (free plan to start) | RDS is the only AWS-native Postgres and it carries a fixed monthly instance cost; Neon scales to zero and charges for use. Postgres either way, so moving later is a `pg_dump`/`pg_restore`. |
@@ -80,7 +80,7 @@ All money is stored as **integer cents**. Quantities and hours are `NUMERIC(10,2
 ### Added in later phases
 | Table | Phase | Purpose |
 |---|---|---|
-| `access_tokens` | 2 | Tokenized customer links. Stores SHA-256 of a 256-bit random token, scope (`estimate:view`, `invoice:pay`, …), target id, expiry, revoked flag. |
+| `access_tokens` | 2 | Tokenized customer links. Stores SHA-256 of a 256-bit random token, its purpose (`estimate`, `work_order`, `invoice`, `inspection`, or `history` for a vehicle's service record), target id, expiry, revoked flag. Sending a newer link for the same thing revokes the older one. |
 | `document_versions` | 2 | Immutable snapshot of a document as sent/signed: JSON content, rendered PDF S3 key, SHA-256 of the PDF. |
 | `authorizations` | 2 | Signature/approval records (covers spec's `estimate_approvals` and §56): signer name/contact, decision, method (drawn, typed, link decline, or recorded by the shop from phone/in person), statement text shown, signature image key or typed name, IP, user agent, timestamp, `document_version_id`, `signed_version_id`, status (valid/superseded). |
 | `inquiries` | 2 | Website contact messages and customers' questions about a document. |

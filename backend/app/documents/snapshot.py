@@ -66,6 +66,9 @@ def _business(b: Business) -> dict:
         "website": b.website,
         "address": _address(b.address_line1, b.address_line2, city_line or None),
         "logo_key": b.logo_key,
+        # Lets a one-"hour" labor line at another price show as a flat rate. Kept out of the
+        # items so it doesn't change the fingerprint of documents already signed.
+        "labor_rate_cents": b.default_labor_rate_cents,
     }
 
 

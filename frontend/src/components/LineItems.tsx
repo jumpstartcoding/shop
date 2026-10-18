@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
 import { centsToInput, money, toCents } from "../lib/format";
-import type { LineItem, LineItemIn, LineKind, Part, Totals } from "../lib/types";
+import type { Business, LineItem, LineItemIn, LineKind, Part, Service, Totals } from "../lib/types";
 import { Button, ErrorNote, Field, Modal, Sheet } from "./ui";
 
 const KIND_LABEL: Record<LineKind, string> = {
@@ -30,8 +30,10 @@ function toInput(li: LineItem): LineItemIn {
   };
 }
 
-function qtyLabel(li: LineItem) {
+function qtyLabel(li: LineItem, laborRate: number | undefined) {
   const q = Number(li.quantity);
+  // One "hour" at something other than the shop rate is a flat-priced job, not an hour of labor.
+  if (li.kind === "labor" && q === 1 && laborRate !== undefined && li.unit_price_cents !== laborRate) return "Flat rate";
   if (li.kind === "labor") return `${q} h × ${money(li.unit_price_cents)}`;
   if (q !== 1) return `${q} × ${money(li.unit_price_cents)}`;
   return null;
@@ -59,6 +61,7 @@ export function LineItems({
 }) {
   const [editing, setEditing] = useState<{ index: number | null; kind: LineKind } | null>(null);
   const [picking, setPicking] = useState(false);
+  const settings = useQuery({ queryKey: ["settings"], queryFn: () => api.get<Business>("/settings"), staleTime: 5 * 60_000 });
 
   const remove = useMutation({
     mutationFn: (id: number) => api.del(`${basePath}/items/${id}`),
@@ -81,7 +84,7 @@ export function LineItems({
                 </p>
                 <p className="text-[15px] text-steel-2">
                   {[
-                    qtyLabel(li),
+                    qtyLabel(li, settings.data?.default_labor_rate_cents),
                     li.part_number && `#${li.part_number}`,
                     li.vendor_name,
                     showCost && li.unit_cost_cents !== null && `cost ${money(li.unit_cost_cents)}`,
@@ -108,7 +111,7 @@ export function LineItems({
 
       {!readOnly && (
         <div className="grid grid-cols-2 gap-2 border-b border-line p-3 sm:grid-cols-5">
-          <Button className="col-span-2 sm:col-span-1" onClick={() => setPicking(true)}>From parts list</Button>
+          <Button className="col-span-2 sm:col-span-1" onClick={() => setPicking(true)}>Parts or services list</Button>
           {(["labor", "part", "fee", "discount"] as LineKind[]).map((k) => (
             <Button key={k} onClick={() => setEditing({ index: null, kind: k })}>
               Add {KIND_LABEL[k].toLowerCase()}
@@ -146,6 +149,62 @@ export function LineItems({
 /** Pick a part from the parts list: fills the line with its price, number, vendor, and
  * warranty, and links it so stock comes out when the work order is completed. */
 function PartPicker({ basePath, onClose }: { basePath: string; onClose: () => void }) {
+  const [tab, setTab] = useState<"parts" | "services">("parts");
+  return (
+    <Modal title="Add from your lists" onClose={onClose}>
+      <div role="tablist" className="mb-4 grid grid-cols-2 gap-2">
+        {([["parts", "Parts"], ["services", "Services"]] as const).map(([t, label]) => (
+          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+            className={`min-h-12 rounded-md border font-semibold ${tab === t ? "border-steel bg-steel text-white" : "border-line bg-sheet"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "parts" ? <PartsTab basePath={basePath} onClose={onClose} /> : <ServicesTab basePath={basePath} onClose={onClose} />}
+    </Modal>
+  );
+}
+
+/** Flat-rate jobs: a service from the website's list becomes one labor line at its price. */
+function ServicesTab({ basePath, onClose }: { basePath: string; onClose: () => void }) {
+  const services = useQuery({ queryKey: ["services"], queryFn: () => api.get<Service[]>("/services") });
+  const add = useMutation({
+    mutationFn: (sv: Service) =>
+      api.post(`${basePath}/items`, {
+        kind: "labor",
+        description: sv.name,
+        quantity: "1",
+        unit_price_cents: sv.starting_price_cents,
+      } satisfies LineItemIn),
+    onSuccess: onClose,
+  });
+  const priced = (services.data ?? []).filter((sv) => sv.starting_price_cents !== null);
+  return (
+    <div className="space-y-3">
+      <p className="text-[15px] text-steel-2">Adds the service as one labor line at its set price. You can change the line afterwards.</p>
+      <ErrorNote error={services.error ?? add.error} />
+      <ul className="max-h-[50dvh] overflow-y-auto">
+        {priced.map((sv) => (
+          <li key={sv.id}>
+            <button type="button" disabled={add.isPending} onClick={() => add.mutate(sv)}
+              className="flex min-h-14 w-full items-center gap-3 border-b border-line px-1 py-2 text-left hover:bg-concrete/60">
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">{sv.name}</span>
+                {sv.category && <span className="block text-[15px] text-steel-2">{sv.category}</span>}
+              </span>
+              <span className="num">{money(sv.starting_price_cents!)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {services.data && priced.length === 0 && (
+        <p className="text-steel-2">No services have a price yet. Set prices under Settings, Services.</p>
+      )}
+    </div>
+  );
+}
+
+function PartsTab({ basePath, onClose }: { basePath: string; onClose: () => void }) {
   const [q, setQ] = useState("");
   const [chosen, setChosen] = useState<Part | null>(null);
   const [qty, setQty] = useState("1");
@@ -172,7 +231,7 @@ function PartPicker({ basePath, onClose }: { basePath: string; onClose: () => vo
     onSuccess: onClose,
   });
   return (
-    <Modal title="Add from parts list" onClose={onClose}>
+    <>
       {chosen ? (
         <form onSubmit={(e) => { e.preventDefault(); add.mutate(chosen); }} className="space-y-4">
           <p className="text-lg font-semibold">{chosen.name}</p>
@@ -215,7 +274,7 @@ function PartPicker({ basePath, onClose }: { basePath: string; onClose: () => vo
           {parts.data?.length === 0 && <p className="text-steel-2">No parts match. Add parts on the Parts page, or use “Add part” to type one in.</p>}
         </div>
       )}
-    </Modal>
+    </>
   );
 }
 

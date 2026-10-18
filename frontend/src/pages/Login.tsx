@@ -30,7 +30,7 @@ export function Login() {
   };
 
   return (
-    <div className="flex min-h-dvh flex-col bg-steel md:items-center md:justify-center">
+    <main className="flex min-h-dvh flex-col bg-steel md:items-center md:justify-center">
       <div className="px-6 pt-14 pb-8 text-white md:pt-0 md:text-center">
         <img src="/favicon.svg" alt="" className="mb-4 h-12 w-12 md:mx-auto" />
         <h1 className="font-display text-4xl font-bold">Shop sign-in</h1>
@@ -56,6 +56,6 @@ export function Login() {
           Sign in
         </Button>
       </form>
-    </div>
+    </main>
   );
 }

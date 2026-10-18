@@ -239,6 +239,7 @@ function NewMenu() {
   const navigate = useNavigate();
   const items: [string, string][] = [
     ["Customer", "/admin/customers/new"],
+    ["Vehicle", "/admin/vehicles/new"],
     ["Work order", "/admin/work-orders/new"],
     ["Estimate", "/admin/estimates/new"],
     ["Invoice", "/admin/invoices/new"],

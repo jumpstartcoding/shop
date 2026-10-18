@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { PhotoStrip } from "../components/Photos";
+import { SendButton } from "../components/Sending";
 import { Button, Dl, Empty, ErrorNote, Field, InternalNote, LinkButton, Loading, Modal, PageHeader, Sheet } from "../components/ui";
 import { VehicleFields, emptyVehicle, vehiclePayload } from "../components/VehicleFields";
 import { api } from "../lib/api";
@@ -38,6 +39,10 @@ export function VehiclePage() {
         actions={
           <>
             <Button onClick={() => setEditing(true)}>Edit</Button>
+            {owner.data && (
+              <SendButton path={`/vehicles/${v.id}/share-history`} label="Share history" noun="service history" variant="secondary"
+                email={owner.data.email} phone={owner.data.phone} />
+            )}
             <LinkButton variant="primary" to={`/admin/work-orders/new?customer=${v.customer_id}&vehicle=${v.id}`}>New work order</LinkButton>
           </>
         }
@@ -249,7 +254,7 @@ function VehiclePhotos({ vehicleId }: { vehicleId: number }) {
             <ul className="flex flex-wrap gap-2">
               {others.map((p) => (
                 <li key={p.id}>
-                  <a href={p.url} target="_blank" rel="noopener" className="block h-24 w-24 overflow-hidden rounded-md border border-line bg-concrete">
+                  <a href={p.url} target="_blank" rel="noopener" aria-label={`Open photo${p.caption ? `: ${p.caption}` : ""} (from ${p.entity_type.replace("_", " ")})`} className="block h-24 w-24 overflow-hidden rounded-md border border-line bg-concrete">
                     <img src={p.thumb_url} alt={p.caption ?? ""} loading="lazy" className="h-full w-full object-cover" />
                   </a>
                 </li>

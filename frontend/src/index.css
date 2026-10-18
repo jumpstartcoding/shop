@@ -13,7 +13,7 @@
 @theme {
   --color-steel: #1f2a30;
   --color-steel-2: #43525a;
-  --color-steel-3: #6b7a82;
+  --color-steel-3: #57666e; /* 4.5:1 or better on white and on concrete */
   --color-concrete: #e7eae8;
   --color-sheet: #ffffff;
   --color-line: #cbd2cf;

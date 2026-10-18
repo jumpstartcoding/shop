@@ -61,6 +61,7 @@ def test_public_routes_are_the_expected_ones():
         "/api/public/contact",
         "/api/public/links/{token}",
         "/api/public/links/{token}/checkout",
+        "/api/public/links/{token}/invoices/{invoice_id}/pdf",
         "/api/public/links/{token}/pdf",
         "/api/public/links/{token}/photos/{photo_id}",
         "/api/public/links/{token}/question",

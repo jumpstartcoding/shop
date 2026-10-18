@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Button, Empty, ErrorNote, Loading, RowLink, Sheet, StatusBadge } from "../components/ui";
+import { Button, Empty, ErrorNote, Loading, Modal, RowLink, Sheet, StatusBadge } from "../components/ui";
 import { api } from "../lib/api";
 import { dateTime, dayLabel, money, time } from "../lib/format";
 import type { WorkOrderCard } from "../lib/types";
@@ -50,7 +51,8 @@ const NOTE_LINK: Record<string, string> = {
   low_stock: "/admin/parts?low=1",
 };
 
-const ENTITY_PATH: Record<string, string> = { estimate: "estimates", invoice: "invoices", work_order: "work-orders" };
+const ENTITY_PATH: Record<string, string> = { estimate: "estimates", invoice: "invoices", work_order: "work-orders", inspection: "inspections", history: "vehicles" };
+const ENTITY_LABEL: Record<string, string> = { estimate: "estimate", invoice: "invoice", work_order: "work order", inspection: "inspection report", history: "vehicle's history" };
 
 export function Dashboard() {
   const { data, error, isLoading } = useQuery({
@@ -86,6 +88,8 @@ export function Dashboard() {
           ))}
         </ul>
       )}
+
+      <QuickActions unpaid={data.unpaid_invoices} />
 
       <Money data={data} />
 
@@ -203,6 +207,65 @@ export function Dashboard() {
   );
 }
 
+const QUICK: [string, string][] = [
+  ["New customer", "/admin/customers/new"],
+  ["New vehicle", "/admin/vehicles/new"],
+  ["New appointment", "/admin/calendar?new=1"],
+  ["New work order", "/admin/work-orders/new"],
+  ["New estimate", "/admin/estimates/new"],
+  ["New invoice", "/admin/invoices/new"],
+];
+
+/** The things a mechanic starts most often, one tap from the home screen (spec §44). */
+function QuickActions({ unpaid }: { unpaid: InvRow[] }) {
+  const [paying, setPaying] = useState(false);
+  const tile = "flex min-h-14 items-center justify-center rounded-md border px-3 text-center font-semibold";
+  return (
+    <nav aria-label="Quick actions">
+      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <li>
+          <Link to="/admin/customers?find=1" className={`${tile} border-steel bg-steel text-white`}>Find customer</Link>
+        </li>
+        <li>
+          <button type="button" onClick={() => setPaying(true)} className={`${tile} w-full border-safety-deep bg-safety text-steel`}>Record payment</button>
+        </li>
+        {QUICK.map(([label, to]) => (
+          <li key={to}>
+            <Link to={to} className={`${tile} whitespace-nowrap border-line bg-sheet hover:border-steel`}>
+              <span aria-hidden="true" className="mr-1.5 text-xl leading-none">+</span>
+              <span className="sr-only">New </span>
+              {label.replace("New ", "").replace(/^./, (c) => c.toUpperCase())}
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {paying && (
+        <Modal title="Record a payment" onClose={() => setPaying(false)}>
+          <p className="mb-3 text-steel-2">Which invoice is it for?</p>
+          {unpaid.length === 0 ? (
+            <Empty>No unpaid invoices that have been sent. Open a draft invoice to take payment on it.</Empty>
+          ) : (
+            <ul className="divide-y divide-line rounded-md border border-line">
+              {unpaid.map((i) => (
+                <li key={i.id}>
+                  <Link to={`/admin/invoices/${i.id}?pay=1`} className="flex min-h-14 items-center gap-3 px-3 py-2 hover:bg-concrete">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold">{i.customer_name}</span>
+                      <span className="block text-[15px] text-steel-2">{i.number}</span>
+                    </span>
+                    <span className="num text-lg">{money(i.balance_cents)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Link to="/admin/invoices" className="mt-3 inline-flex min-h-12 items-center underline underline-offset-4">All invoices</Link>
+        </Modal>
+      )}
+    </nav>
+  );
+}
+
 function Money({ data }: { data: DashboardData }) {
   const cells: [string, number][] = [
     ["Today", data.revenue.today_cents],
@@ -232,9 +295,9 @@ function ApptLink({ a, showTime, showDay }: { a: ApptRow; showTime?: boolean; sh
   return (
     <RowLink to={`/admin/calendar?appointment=${a.id}`}>
       {(showTime || showDay) && (
-        <span className="num w-20 shrink-0 text-lg">
-          {showDay && a.starts_at ? dayLabel(a.starts_at).split(",")[0] + " " : ""}
-          {a.starts_at ? time(a.starts_at) : ""}
+        <span className="num w-24 shrink-0 text-lg leading-tight">
+          {showDay && a.starts_at && <span className="block text-[15px] text-steel-2">{dayLabel(a.starts_at).split(",")[0]}</span>}
+          <span className="block whitespace-nowrap">{a.starts_at ? time(a.starts_at) : ""}</span>
         </span>
       )}
       <div className="min-w-0 flex-1">
@@ -262,7 +325,7 @@ function Messages({ messages }: { messages: DashboardData["messages"] }) {
                   {m.kind === "question" ? "asked about " : "wrote through the website"}
                   {m.kind === "question" && m.entity_type && m.entity_id && (
                     <Link className="underline" to={`/admin/${ENTITY_PATH[m.entity_type]}/${m.entity_id}`}>
-                      their {m.entity_type.replace("_", " ")}
+                      their {ENTITY_LABEL[m.entity_type] ?? m.entity_type.replace("_", " ")}
                     </Link>
                   )}
                   , {dateTime(m.created_at)}

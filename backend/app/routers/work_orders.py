@@ -17,12 +17,13 @@ from app.schemas.documents import (
     StatusChange,
     WorkOrderCard,
     WorkOrderCreate,
+    WorkOrderNoteIn,
     WorkOrderOut,
     WorkOrderStatus,
     WorkOrderUpdate,
 )
 from app.services import notify, workflow
-from app.services.business import get_business
+from app.services.business import get_business, shop_now
 from app.services.serialize import invoice_out, work_order_card, work_order_out
 
 router = APIRouter(prefix="/work-orders", tags=["work orders"])
@@ -147,6 +148,43 @@ def update_work_order(
             entity_id=wo.id,
             details=delta,
         )
+    db.flush()
+    return work_order_out(db, wo)
+
+
+NOTES_LIMIT = 20000
+
+
+@router.post("/{wo_id}/notes", response_model=WorkOrderOut)
+def add_note(
+    wo_id: int,
+    data: WorkOrderNoteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Add a timestamped line to the internal notes ("notes throughout the repair"). Appending
+    on the server means a quick note from the phone can't overwrite one typed elsewhere."""
+    wo = workflow.get_or_404(db, WorkOrder, wo_id, "Work order", lock=True)
+    stamp = shop_now(get_business(db)).strftime("%b %-d, %-I:%M %p")
+    line = f"[{stamp}] {data.text}"
+    notes = f"{wo.internal_notes.rstrip()}\n{line}" if wo.internal_notes else line
+    if len(notes) > NOTES_LIMIT:
+        from app.core.errors import AppError
+
+        raise AppError(
+            "The internal notes are full. Tidy them up under Notes and mileage first.",
+            status_code=422,
+            code="notes_full",
+        )
+    wo.internal_notes = notes
+    audit.record(
+        db,
+        user=user,
+        action="work_order.note_added",
+        entity_type="work_order",
+        entity_id=wo.id,
+        details={},
+    )
     db.flush()
     return work_order_out(db, wo)
 
