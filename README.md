@@ -169,9 +169,12 @@ PDFs need WeasyPrint's system libraries. On a Mac, install them with Homebrew, t
 
 ```bash
 brew install pango
-echo 'export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib' >> ~/.zshrc   # once
+echo 'export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib' >> ~/.zshrc   # once (bash: ~/.bash_profile)
 source ~/.zshrc                                                           # then restart uvicorn
+uv run python -c "import weasyprint; print('PDFs OK')"                    # check
 ```
+
+Restart means stop it with Ctrl+C. Ctrl+Z only pauses it, and the paused server keeps port 8000 (`kill %1` ends it).
 
 (Intel Macs use `/usr/local/lib`, which is searched already, so `brew install pango` is enough.) On Debian/Ubuntu: `apt install libpango-1.0-0 libpangoft2-1.0-0`. With `EMAIL_BACKEND=file`, "sent" emails appear as `.eml` files in `backend/.files/outbox`.
 
