@@ -55,7 +55,7 @@ jobs:
             *) echo "::error::AWS_DEPLOY_ROLE_ARN doesn't look like a role ARN (arn:aws:iam::<12 digits>:role/...). Check for spaces or a cut-off paste." ;;
           esac
           if [ "$sub" != "repo:${GITHUB_REPOSITORY}:ref:refs/heads/main" ]; then
-            echo "::warning::GitHub's subject differs from what the deploy role trusts. Deploys must run on main, and the repo must use GitHub's default OIDC subject format."
+            echo "::warning::GitHub's subject is [$sub] but the deploy role trusts [repo:${GITHUB_REPOSITORY}:ref:refs/heads/main]. Deploys must run on main, and the repo must use GitHub's default OIDC subject format."
           fi
 
       - uses: aws-actions/configure-aws-credentials@v5
