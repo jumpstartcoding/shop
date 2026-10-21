@@ -681,10 +681,12 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub
-                  - "repo:${Repo}:ref:refs/heads/main"
-                  - Repo:
-                      Fn::ImportValue: !Sub "${BootstrapStackName}-GitHubRepository"
+                token.actions.githubusercontent.com:sub:
+                  - !Sub
+                    - "repo:${Repo}:ref:refs/heads/main"
+                    - Repo:
+                        Fn::ImportValue: !Sub "${BootstrapStackName}-GitHubRepository"
+                  - Fn::ImportValue: !Sub "${BootstrapStackName}-GitHubIdSubject"
       Policies:
         - PolicyName: write-backups
           PolicyDocument:

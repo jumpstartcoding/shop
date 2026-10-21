@@ -70,7 +70,7 @@ aws cloudformation deploy --stack-name shop-bootstrap --template-file infra/boot
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides BudgetEmail=you@example.com MonthlyBudgetUsd=10
 ```
-If it fails saying the GitHub identity provider already exists, add `CreateGitHubOidcProvider=false` to the overrides and run it again.
+If it fails saying the GitHub identity provider already exists, add `CreateGitHubOidcProvider=false` to the overrides and run it again. If you deploy from a fork or a renamed repository, also pass `GitHubRepository=owner/repo GitHubRepositoryIds=<ownerId>/<repoId>` (get the IDs with `gh api repos/owner/repo --jq '"\(.owner.id)/\(.id)"'`). GitHub now identifies a repository by these IDs when it signs in to AWS.
 
 Show the outputs:
 ```bash
@@ -226,7 +226,7 @@ aws lambda update-function-configuration --function-name "$FN" --description "re
 | Symptom | Fix |
 |---|---|
 | Deploy job shows **skipped** | `AWS_DEPLOY_ROLE_ARN` isn't set (step 6). |
-| "Not authorized to perform sts:AssumeRoleWithWebIdentity" | The Deploy job's **Show the identity GitHub presents to AWS** step prints the role and subject it used. In order of likelihood: (1) `AWS_DEPLOY_ROLE_ARN` holds the wrong value: it must be the bootstrap output **DeployRoleArn**, not `CloudFormationExecutionRoleArn`, with no spaces; (2) the run isn't on `main`; (3) the bootstrap stack's `GitHubRepository` parameter isn't exactly `jumpstartcoding/shop`; (4) the account already had a GitHub identity provider (`CreateGitHubOidcProvider=false`) whose audience list lacks `sts.amazonaws.com`. CloudShell commands to check (2)–(4) are below the table. |
+| "Not authorized to perform sts:AssumeRoleWithWebIdentity" | The Deploy job's **Show the identity GitHub presents to AWS** step prints the role and the subject GitHub sent, with a warning if they don't match. In order of likelihood: (1) the bootstrap stack predates support for GitHub's ID-based subject (`repo:owner@123/repo@456:...`): update it as below; (2) `AWS_DEPLOY_ROLE_ARN` holds the wrong value: it must be the bootstrap output **DeployRoleArn**, not `CloudFormationExecutionRoleArn`, with no spaces; (3) the run isn't on `main`; (4) the account already had a GitHub identity provider (`CreateGitHubOidcProvider=false`) whose audience list lacks `sts.amazonaws.com`. |
 | Stack ends in `ROLLBACK_COMPLETE` on the first deploy | Open the stack's **Events** tab and find the first `CREATE_FAILED` reason, fix it, **delete the `shop` stack**, and re-run. A failed first create can't be updated in place. The files and backups buckets are kept; delete them by hand if they're empty. |
 | Stuck on the certificate for 30+ minutes | DNS validation isn't visible yet. With option A, check the registrar uses the Route 53 nameservers (`dig NS yourshop.com`). |
 | "Specified ReservedConcurrentExecutions ... decreases account's UnreservedConcurrentExecution below its minimum" | Remove the `RESERVED_CONCURRENCY` variable; the account's limit is too low to reserve any. |
@@ -236,12 +236,20 @@ aws lambda update-function-configuration --function-name "$FN" --description "re
 | Site shows `{"error":{"code":"forbidden"...}}` | You're on the Lambda Function URL directly. Use the CloudFront address. |
 | Customer emails don't arrive | SES is still in the sandbox (step 9), or they went to spam (add the DMARC record). The invoice/estimate page in the app shows whether each email was sent. |
 
+Updating the bootstrap stack (CloudShell; keep any overrides you used the first time, such as `CreateGitHubOidcProvider=false`):
+```bash
+cd shop && git pull
+aws cloudformation deploy --stack-name shop-bootstrap --template-file infra/bootstrap.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides BudgetEmail=you@example.com MonthlyBudgetUsd=10 GitHubRepositoryIds=116022896/1419978060
+```
+
 Checking the GitHub sign-in from CloudShell:
 ```bash
 # The value AWS_DEPLOY_ROLE_ARN must hold:
 aws cloudformation describe-stacks --stack-name shop-bootstrap \
   --query "Stacks[0].Outputs[?OutputKey=='DeployRoleArn'].OutputValue" --output text
-# Which repo and branch that role trusts (must say repo:jumpstartcoding/shop:ref:refs/heads/main):
+# Which repo and branch that role trusts (must list the subject the Deploy run printed):
 ROLE=$(aws cloudformation describe-stack-resource --stack-name shop-bootstrap --logical-resource-id GitHubDeployRole \
   --query StackResourceDetail.PhysicalResourceId --output text)
 aws iam get-role --role-name "$ROLE" --query "Role.AssumeRolePolicyDocument.Statement[0].Condition"

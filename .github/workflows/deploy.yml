@@ -48,15 +48,20 @@ jobs:
           print(json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))["sub"])')
           echo "Role to assume: [$ROLE]"
           echo "Subject (sub):  $sub"
-          echo "Expected sub:   repo:${GITHUB_REPOSITORY}:ref:refs/heads/main"
+          owner=${GITHUB_REPOSITORY%/*}; repo=${GITHUB_REPOSITORY#*/}
+          echo "Trusted:        repo:${GITHUB_REPOSITORY}:ref:refs/heads/main"
+          echo "           or:  repo:${owner}@${GITHUB_REPOSITORY_OWNER_ID}/${repo}@${GITHUB_REPOSITORY_ID}:ref:refs/heads/main"
           case "$ROLE" in
             *CloudFormationExecution*) echo "::error::AWS_DEPLOY_ROLE_ARN is the CloudFormation role. Use the bootstrap output DeployRoleArn instead." ;;
             arn:aws:iam::[0-9]*:role/*) ;;
             *) echo "::error::AWS_DEPLOY_ROLE_ARN doesn't look like a role ARN (arn:aws:iam::<12 digits>:role/...). Check for spaces or a cut-off paste." ;;
           esac
-          if [ "$sub" != "repo:${GITHUB_REPOSITORY}:ref:refs/heads/main" ]; then
-            echo "::warning::GitHub's subject is [$sub] but the deploy role trusts [repo:${GITHUB_REPOSITORY}:ref:refs/heads/main]. Deploys must run on main, and the repo must use GitHub's default OIDC subject format."
-          fi
+          case "$sub" in
+            "repo:${GITHUB_REPOSITORY}:ref:refs/heads/main" | \
+            "repo:${owner}@${GITHUB_REPOSITORY_OWNER_ID}/${repo}@${GITHUB_REPOSITORY_ID}:ref:refs/heads/main") ;;
+            *) echo "::warning::GitHub's subject is [$sub], which the deploy role doesn't trust. Deploys must run on main of ${GITHUB_REPOSITORY}." ;;
+          esac
+          echo "If sign-in still fails, the bootstrap stack's GitHubRepositoryIds must be ${GITHUB_REPOSITORY_OWNER_ID}/${GITHUB_REPOSITORY_ID} (docs/DEPLOYMENT.md, Troubleshooting)."
 
       - uses: aws-actions/configure-aws-credentials@v5
         with:

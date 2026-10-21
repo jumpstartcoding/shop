@@ -10,6 +10,15 @@ Parameters:
     Default: jumpstartcoding/shop
     AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
     Description: owner/repo allowed to deploy. Only pushes to its main branch can deploy.
+  GitHubRepositoryIds:
+    Type: String
+    Default: "116022896/1419978060"
+    AllowedPattern: "^$|^[0-9]+/[0-9]+$"
+    Description: >-
+      ownerId/repoId of that repository. GitHub's newer sign-in format names the repo as
+      owner@ownerId/repo@repoId, so a deleted-and-recreated repo with the same name can't
+      deploy. Find them with: gh api repos/OWNER/REPO --jq '"\(.owner.id)/\(.id)"'.
+      Leave empty to trust only the older name-only format.
   CreateGitHubOidcProvider:
     Type: String
     Default: "true"
@@ -35,6 +44,7 @@ Parameters:
 Conditions:
   CreateOidc: !Equals [!Ref CreateGitHubOidcProvider, "true"]
   HasBudget: !Not [!Equals [!Ref BudgetEmail, ""]]
+  HasRepoIds: !Not [!Equals [!Ref GitHubRepositoryIds, ""]]
 
 Resources:
   GitHubOidcProvider:
@@ -164,7 +174,18 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepository}:ref:refs/heads/main"
+                # Either subject format GitHub may send for pushes to main (see GitHubRepositoryIds).
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubRepository}:ref:refs/heads/main"
+                  - !If
+                    - HasRepoIds
+                    - !Sub
+                      - "repo:${Owner}@${OwnerId}/${Repo}@${RepoId}:ref:refs/heads/main"
+                      - Owner: !Select [0, !Split ["/", !Ref GitHubRepository]]
+                        Repo: !Select [1, !Split ["/", !Ref GitHubRepository]]
+                        OwnerId: !Select [0, !Split ["/", !Ref GitHubRepositoryIds]]
+                        RepoId: !Select [1, !Split ["/", !Ref GitHubRepositoryIds]]
+                    - !Sub "repo:${GitHubRepository}:ref:refs/heads/main"
       Policies:
         - PolicyName: deploy
           PolicyDocument:
@@ -256,3 +277,16 @@ Outputs:
     Value: !Ref GitHubRepository
     Export:
       Name: !Sub "${AWS::StackName}-GitHubRepository"
+  GitHubIdSubject:
+    Description: The ID-based subject GitHub sends for pushes to main (used by the backup role).
+    Value: !If
+      - HasRepoIds
+      - !Sub
+        - "repo:${Owner}@${OwnerId}/${Repo}@${RepoId}:ref:refs/heads/main"
+        - Owner: !Select [0, !Split ["/", !Ref GitHubRepository]]
+          Repo: !Select [1, !Split ["/", !Ref GitHubRepository]]
+          OwnerId: !Select [0, !Split ["/", !Ref GitHubRepositoryIds]]
+          RepoId: !Select [1, !Split ["/", !Ref GitHubRepositoryIds]]
+      - !Sub "repo:${GitHubRepository}:ref:refs/heads/main"
+    Export:
+      Name: !Sub "${AWS::StackName}-GitHubIdSubject"
