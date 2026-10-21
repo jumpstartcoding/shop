@@ -226,7 +226,7 @@ aws lambda update-function-configuration --function-name "$FN" --description "re
 | Symptom | Fix |
 |---|---|
 | Deploy job shows **skipped** | `AWS_DEPLOY_ROLE_ARN` isn't set (step 6). |
-| "Not authorized to perform sts:AssumeRoleWithWebIdentity" | The run isn't on `main`, or `GitHubRepository` in the bootstrap stack doesn't match the repo name. |
+| "Not authorized to perform sts:AssumeRoleWithWebIdentity" | The Deploy job's **Show the identity GitHub presents to AWS** step prints the role and subject it used. In order of likelihood: (1) `AWS_DEPLOY_ROLE_ARN` holds the wrong value: it must be the bootstrap output **DeployRoleArn**, not `CloudFormationExecutionRoleArn`, with no spaces; (2) the run isn't on `main`; (3) the bootstrap stack's `GitHubRepository` parameter isn't exactly `jumpstartcoding/shop`; (4) the account already had a GitHub identity provider (`CreateGitHubOidcProvider=false`) whose audience list lacks `sts.amazonaws.com`. CloudShell commands to check (2)–(4) are below the table. |
 | Stack ends in `ROLLBACK_COMPLETE` on the first deploy | Open the stack's **Events** tab and find the first `CREATE_FAILED` reason, fix it, **delete the `shop` stack**, and re-run. A failed first create can't be updated in place. The files and backups buckets are kept; delete them by hand if they're empty. |
 | Stuck on the certificate for 30+ minutes | DNS validation isn't visible yet. With option A, check the registrar uses the Route 53 nameservers (`dig NS yourshop.com`). |
 | "Specified ReservedConcurrentExecutions ... decreases account's UnreservedConcurrentExecution below its minimum" | Remove the `RESERVED_CONCURRENCY` variable; the account's limit is too low to reserve any. |
@@ -235,6 +235,21 @@ aws lambda update-function-configuration --function-name "$FN" --description "re
 | ❌ Email: domain not verified | DKIM records missing or still propagating; SES can take up to 72 hours. |
 | Site shows `{"error":{"code":"forbidden"...}}` | You're on the Lambda Function URL directly. Use the CloudFront address. |
 | Customer emails don't arrive | SES is still in the sandbox (step 9), or they went to spam (add the DMARC record). The invoice/estimate page in the app shows whether each email was sent. |
+
+Checking the GitHub sign-in from CloudShell:
+```bash
+# The value AWS_DEPLOY_ROLE_ARN must hold:
+aws cloudformation describe-stacks --stack-name shop-bootstrap \
+  --query "Stacks[0].Outputs[?OutputKey=='DeployRoleArn'].OutputValue" --output text
+# Which repo and branch that role trusts (must say repo:jumpstartcoding/shop:ref:refs/heads/main):
+ROLE=$(aws cloudformation describe-stack-resource --stack-name shop-bootstrap --logical-resource-id GitHubDeployRole \
+  --query StackResourceDetail.PhysicalResourceId --output text)
+aws iam get-role --role-name "$ROLE" --query "Role.AssumeRolePolicyDocument.Statement[0].Condition"
+# The GitHub identity provider's audiences (must include sts.amazonaws.com):
+aws iam get-open-id-connect-provider --open-id-connect-provider-arn \
+  "arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):oidc-provider/token.actions.githubusercontent.com" \
+  --query ClientIDList
+```
 
 ## Removing everything
 

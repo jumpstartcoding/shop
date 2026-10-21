@@ -35,6 +35,29 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Prints what GitHub presents to AWS (not secret), so a failed sign-in can be matched
+      # against the deploy role's trust policy. The token itself is never printed.
+      - name: Show the identity GitHub presents to AWS
+        env:
+          ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          token=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          sub=$(TOKEN="$token" python3 -c 'import base64, json, os
+          p = os.environ["TOKEN"].split(".")[1]
+          print(json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))["sub"])')
+          echo "Role to assume: [$ROLE]"
+          echo "Subject (sub):  $sub"
+          echo "Expected sub:   repo:${GITHUB_REPOSITORY}:ref:refs/heads/main"
+          case "$ROLE" in
+            *CloudFormationExecution*) echo "::error::AWS_DEPLOY_ROLE_ARN is the CloudFormation role. Use the bootstrap output DeployRoleArn instead." ;;
+            arn:aws:iam::[0-9]*:role/*) ;;
+            *) echo "::error::AWS_DEPLOY_ROLE_ARN doesn't look like a role ARN (arn:aws:iam::<12 digits>:role/...). Check for spaces or a cut-off paste." ;;
+          esac
+          if [ "$sub" != "repo:${GITHUB_REPOSITORY}:ref:refs/heads/main" ]; then
+            echo "::warning::GitHub's subject differs from what the deploy role trusts. Deploys must run on main, and the repo must use GitHub's default OIDC subject format."
+          fi
+
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
